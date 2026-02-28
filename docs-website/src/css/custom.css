@@ -1,0 +1,30 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* Pomegranate red/crimson palette */
+:root {
+  --ifm-color-primary: #c0392b;
+  --ifm-color-primary-dark: #ad3327;
+  --ifm-color-primary-darker: #a33025;
+  --ifm-color-primary-darkest: #86271e;
+  --ifm-color-primary-light: #c94c3f;
+  --ifm-color-primary-lighter: #cd5548;
+  --ifm-color-primary-lightest: #d77069;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode — lighter pomegranate tones for readability */
+[data-theme='dark'] {
+  --ifm-color-primary: #e74c3c;
+  --ifm-color-primary-dark: #e43725;
+  --ifm-color-primary-darker: #d83424;
+  --ifm-color-primary-darkest: #b32b1e;
+  --ifm-color-primary-light: #ea6153;
+  --ifm-color-primary-lighter: #eb6b5e;
+  --ifm-color-primary-lightest: #f08d83;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}

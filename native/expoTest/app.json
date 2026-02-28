@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "PomegranateExpoTest",
+    "slug": "pomegranate-expo-test",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "pomegranate-test",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.pomegranate.expotest",
+      "adaptiveIcon": {
+        "backgroundColor": "#c0392b"
+      }
+    },
+    "plugins": [
+      ["pomegranate-db/expo-plugin", { "enableFTS": true }]
+    ],
+    "newArchEnabled": false
+  }
+}

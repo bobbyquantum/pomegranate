@@ -1,0 +1,18 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 120
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+BreakBeforeBraces: Attach
+PointerAlignment: Right
+SpaceAfterCStyleCast: false
+IncludeBlocks: Preserve
+SortIncludes: false
+---
+Language: ObjC
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 120

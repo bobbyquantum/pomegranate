@@ -1,0 +1,65 @@
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+apply plugin: 'kotlin-android'
+
+react {
+    root = file("$rootDir/../../")
+    entryFile = file("$rootDir/../../src/index.integrationTests.native.tsx")
+    autolinkLibrariesWithApp()
+}
+
+android {
+    testBuildType "debug"
+
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "com.pomegranate.test"
+
+    defaultConfig {
+        applicationId "com.pomegranate.test"
+        minSdkVersion rootProject.minSdkVersion
+        targetSdkVersion rootProject.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+
+    packagingOptions {
+        pickFirst '**/libhermes.so'
+        pickFirst '**/libc++_shared.so'
+    }
+}
+
+dependencies {
+    // React Native (version set by RN Gradle Plugin)
+    implementation("com.facebook.react:react-android")
+    implementation("com.facebook.react:hermes-android")
+
+    // PomegranateDB native JSI module
+    implementation project(':pomegranate-jsi')
+
+    // AndroidX
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+
+    // Kotlin
+    implementation "org.jetbrains.kotlin:kotlin-stdlib"
+
+    // Test instrumentation
+    androidTestImplementation 'androidx.annotation:annotation:1.7.1'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test:rules:1.5.0'
+    androidTestImplementation 'androidx.test:core-ktx:1.5.0'
+}

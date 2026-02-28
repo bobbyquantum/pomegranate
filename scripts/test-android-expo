@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── PomegranateDB — Expo Android Integration Tests ─────────────────────
+#
+# Prerequisites:
+#   - JDK 21 installed (JAVA_HOME set)
+#   - Android SDK installed (ANDROID_HOME set)
+#   - An emulator running or device connected
+#
+# Usage:
+#   ./scripts/test-android-expo
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+EXPO_TEST_DIR="$PROJECT_ROOT/native/expoTest"
+
+echo "═══════════════════════════════════════════════════════"
+echo "  PomegranateDB — Android Integration Tests (Expo)"
+echo "═══════════════════════════════════════════════════════"
+
+# Check prerequisites
+if [ -z "${ANDROID_HOME:-}" ]; then
+  echo "❌ ANDROID_HOME is not set"
+  exit 1
+fi
+
+DEVICES=$(adb devices 2>/dev/null | grep -c -E '\t(device|emulator)')
+if [ "$DEVICES" -eq 0 ]; then
+  echo "⚠️  No connected devices. Starting emulator..."
+  AVDS=$(emulator -list-avds 2>/dev/null | head -1)
+  if [ -z "$AVDS" ]; then
+    echo "❌ No AVDs found."
+    exit 1
+  fi
+  emulator -avd "$AVDS" -no-window -no-audio -no-boot-anim &
+  adb wait-for-device
+  echo "  ✓ Emulator ready"
+fi
+
+# Install dependencies if needed
+cd "$EXPO_TEST_DIR"
+if [ ! -d "node_modules" ]; then
+  echo "▶ Installing dependencies..."
+  npm install
+fi
+
+# Prebuild the Android project
+echo "▶ Running expo prebuild..."
+npx expo prebuild --platform android --clean
+
+# Build and run
+echo "▶ Building and installing on device..."
+npx expo run:android
+
+echo ""
+echo "═══════════════════════════════════════════════════════"
+echo "  App installed and running!"
+echo "  Check the device screen or logcat for test results:"
+echo "    adb logcat -s ReactNativeJS:V"
+echo "═══════════════════════════════════════════════════════"

@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── PomegranateDB — React Native Android Integration Tests ─────────────
+#
+# Prerequisites:
+#   - JDK 21 installed (JAVA_HOME set)
+#   - Android SDK installed (ANDROID_HOME set)
+#   - An emulator running or device connected (adb devices)
+#   - react-native + react installed in root node_modules
+#
+# Usage:
+#   ./scripts/test-android [--skip-metro]
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ANDROID_TEST_DIR="$PROJECT_ROOT/native/androidTest"
+
+SKIP_METRO=false
+for arg in "$@"; do
+  case $arg in
+    --skip-metro) SKIP_METRO=true ;;
+  esac
+done
+
+echo "═══════════════════════════════════════════════════════"
+echo "  PomegranateDB — Android Integration Tests (RN)"
+echo "═══════════════════════════════════════════════════════"
+
+# Check prerequisites
+if [ -z "${ANDROID_HOME:-}" ]; then
+  echo "❌ ANDROID_HOME is not set"
+  exit 1
+fi
+
+if ! command -v adb &>/dev/null; then
+  echo "❌ adb not found in PATH"
+  exit 1
+fi
+
+# Check for connected device / emulator
+DEVICES=$(adb devices 2>/dev/null | grep -c -E '\t(device|emulator)')
+if [ "$DEVICES" -eq 0 ]; then
+  echo "⚠️  No connected devices. Starting emulator..."
+  AVDS=$(emulator -list-avds 2>/dev/null | head -1)
+  if [ -z "$AVDS" ]; then
+    echo "❌ No AVDs found. Create one first:"
+    echo "   avdmanager create avd -n pomegranate-test -k 'system-images;android-34;google_apis;x86_64'"
+    exit 1
+  fi
+  echo "  Launching: $AVDS"
+  emulator -avd "$AVDS" -no-window -no-audio -no-boot-anim &
+  adb wait-for-device
+  echo "  ✓ Emulator ready"
+fi
+
+# Start Metro bundler (unless skipped)
+METRO_PID=""
+if [ "$SKIP_METRO" = false ]; then
+  echo "▶ Starting Metro bundler..."
+  cd "$PROJECT_ROOT"
+  npx react-native start --reset-cache &
+  METRO_PID=$!
+  sleep 5
+  echo "  ✓ Metro started (PID: $METRO_PID)"
+fi
+
+# Run Gradle instrumentation tests
+echo "▶ Running connectedAndroidTest..."
+cd "$ANDROID_TEST_DIR"
+
+# Generate gradle wrapper if missing
+if [ ! -f "./gradlew" ]; then
+  echo "  Generating gradle wrapper..."
+  gradle wrapper --gradle-version 8.10
+fi
+
+chmod +x ./gradlew
+./gradlew connectedAndroidTest --info 2>&1 | tail -30
+EXIT_CODE=${PIPESTATUS[0]}
+
+# Cleanup Metro
+if [ -n "$METRO_PID" ]; then
+  echo "  Stopping Metro (PID: $METRO_PID)..."
+  kill "$METRO_PID" 2>/dev/null || true
+fi
+
+if [ "$EXIT_CODE" -eq 0 ]; then
+  echo ""
+  echo "✅ Android integration tests PASSED"
+else
+  echo ""
+  echo "❌ Android integration tests FAILED (exit code: $EXIT_CODE)"
+  # Retry once (adb can be flaky)
+  echo "  Retrying after adb restart..."
+  adb kill-server && adb start-server
+  sleep 2
+  ./gradlew connectedAndroidTest --info 2>&1 | tail -30
+  EXIT_CODE=${PIPESTATUS[0]}
+  if [ "$EXIT_CODE" -eq 0 ]; then
+    echo "✅ Android integration tests PASSED (on retry)"
+  else
+    echo "❌ Android integration tests FAILED on retry"
+    exit $EXIT_CODE
+  fi
+fi
