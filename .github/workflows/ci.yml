@@ -175,13 +175,6 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # ── Use Xcode 16.1 (Swift 6.0) to avoid Swift 6.1 concurrency errors ──
-      # Xcode 16.4 (default, Swift 6.1) rejects @MainActor type attributes in
-      # Swift 5 mode. Xcode 16.1 (Swift 6.0) handles them correctly.
-      # React Native 0.83 requires Xcode >= 16.1.
-      - name: Select Xcode 16.1
-        run: sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
-
       # ── Build the library ───────────────────────────────────────────
       - name: Install root deps
         run: npm ci
