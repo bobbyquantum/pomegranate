@@ -1,9 +1,9 @@
 appId: com.pomegranatedb.todo.demo
 name: Add a todo
 ---
+- stopApp
 - launchApp:
     appId: com.pomegranatedb.todo.demo
-    clearState: true
 
 # Wait for the app to fully load
 - assertVisible: "PomegranateDB"
