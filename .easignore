@@ -1,0 +1,68 @@
+# EAS Build ignore — based on .gitignore but allows *.tgz so the
+# locally-packed pomegranate-db tarball is included in the archive.
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Coverage
+coverage/
+
+# Native build artifacts
+native/android-jsi/.cxx/
+native/android-jsi/build/
+native/androidTest/.gradle/
+native/androidTest/build/
+native/androidTest/app/build/
+native/androidTest/gradle/wrapper/gradle-wrapper.jar
+native/expoTest/node_modules/
+native/expoTest/.expo/
+native/expoTest/android/
+native/expoTest/ios/
+
+# SQLite amalgamation (large vendor files — download via script)
+native/shared/sqlite3/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Docusaurus
+docs-website/node_modules/
+docs-website/build/
+docs-website/.docusaurus/
+
+# Expo
+.expo/
+expo-plugin/*.js
+expo-plugin/*.d.ts
+expo-plugin/*.map
+
+# Demos
+demos/*/node_modules/
+demos/*/.expo/
+demos/*/dist/
+
+# Misc
+*.log
+npm-debug.log*
+yarn-error.log*
+.env
+.env.local
+
+# Local tool binaries
+/ktlint
