@@ -1,0 +1,17 @@
+appId: com.pomegranatedb.todo.demo
+name: Add a todo
+---
+# Wait for the app to load
+- assertVisible: "PomegranateDB"
+
+# Type a new todo
+- tapOn:
+    id: "todo-input"
+- inputText: "Buy milk"
+- pressKey: Enter
+
+# Verify the todo appears
+- assertVisible: "Buy milk"
+
+# Verify stats updated
+- assertVisible: "remaining"

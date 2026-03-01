@@ -1,0 +1,18 @@
+appId: com.pomegranatedb.todo.demo
+name: Toggle a todo
+---
+# Wait for app
+- assertVisible: "PomegranateDB"
+
+# Seed sample todos
+- tapOn:
+    id: "seed-btn"
+- assertVisible: "Buy groceries 🛒"
+
+# Toggle the first todo
+- tapOn:
+    id: "todo-checkbox"
+    index: 0
+
+# Verify stats changed (at least 1 done)
+- assertVisible: "done"

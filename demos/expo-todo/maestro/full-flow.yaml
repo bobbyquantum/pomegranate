@@ -1,0 +1,31 @@
+appId: com.pomegranatedb.todo.demo
+name: Full CRUD flow
+---
+# ── App loads ──────────────────────────────────────────────────────────────
+- assertVisible: "PomegranateDB"
+- assertVisible: "Reactive offline-first database"
+
+# ── Add a todo ─────────────────────────────────────────────────────────────
+- tapOn:
+    id: "todo-input"
+- inputText: "Maestro test todo"
+- pressKey: Enter
+- assertVisible: "Maestro test todo"
+
+# ── Toggle it complete ─────────────────────────────────────────────────────
+- tapOn:
+    id: "todo-checkbox"
+    index: 0
+
+# ── Seed sample data ──────────────────────────────────────────────────────
+- tapOn:
+    id: "seed-btn"
+- assertVisible: "Buy groceries 🛒"
+- assertVisible: "Walk the dog 🐕"
+
+# ── Clear completed ───────────────────────────────────────────────────────
+- tapOn:
+    id: "clear-completed-btn"
+
+# ── Verify remaining todos are still visible ─────────────────────────────
+- assertVisible: "remaining"

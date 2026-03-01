@@ -157,6 +157,106 @@ jobs:
           path: demos/expo-todo/playwright-report/
           retention-days: 7
 
+  # ─── iOS Simulator e2e (Maestro) ────────────────────────────────────────────
+  #
+  # Builds the Expo demo app for iOS Simulator and runs Maestro flows.
+
+  e2e-ios:
+    name: iOS e2e (Maestro)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: demos/expo-todo
+    timeout-minutes: 45
+    env:
+      EXPO_PUBLIC_ADAPTER: loki-memory
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            demos/expo-todo/package-lock.json
+
+      # ── Build the library ───────────────────────────────────────────
+      - name: Install root deps
+        run: npm ci
+        working-directory: .
+
+      - name: Build library
+        run: npm run build
+        working-directory: .
+
+      - name: Pack library tarball
+        run: npm pack
+        working-directory: .
+
+      # ── Prepare the demo app ────────────────────────────────────────
+      - name: Install demo deps
+        run: npm install
+
+      - name: Expo prebuild (iOS)
+        run: npx expo prebuild --platform ios --clean
+
+      # ── Build for simulator ─────────────────────────────────────────
+      - name: Build iOS app (Simulator)
+        run: |
+          xcodebuild \
+            -workspace ios/PomegranateDBTodo.xcworkspace \
+            -scheme PomegranateDBTodo \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty --color
+        env:
+          NSUnbufferedIO: YES
+
+      # ── Boot simulator & install ────────────────────────────────────
+      - name: Boot iOS Simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for runtime, devs in data['devices'].items():
+            if 'iOS' in runtime:
+              for d in devs:
+                if d['name'] == 'iPhone 16' and d['isAvailable']:
+                  print(d['udid']); sys.exit()
+          ")
+          echo "SIMULATOR_UDID=$DEVICE" >> $GITHUB_ENV
+          xcrun simctl boot "$DEVICE" || true
+
+      - name: Install app in simulator
+        run: |
+          APP_PATH=$(find ios/build -name "*.app" -type d | head -1)
+          xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
+
+      # ── Maestro ─────────────────────────────────────────────────────
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+
+      - name: Run Maestro flows
+        run: |
+          export PATH="$HOME/.maestro/bin:$PATH"
+          maestro test maestro/
+
+      - name: Upload Maestro output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-report
+          path: |
+            ~/.maestro/tests/
+          retention-days: 7
+
   # ─── Podspec lint ────────────────────────────────────────────────────────────
   #
   # Uses macOS to validate that the podspec metadata is well-formed.

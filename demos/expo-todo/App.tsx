@@ -61,6 +61,7 @@ function AddTodo() {
   return (
     <View style={styles.inputCard}>
       <TextInput
+        testID="todo-input"
         style={styles.input}
         placeholder="What needs to be done?"
         placeholderTextColor={GRAY_400}
@@ -70,6 +71,7 @@ function AddTodo() {
         returnKeyType="done"
       />
       <Pressable
+        testID="add-todo-btn"
         style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}
         onPress={handleAdd}
       >
@@ -95,8 +97,9 @@ function TodoItem({ todo }: { todo: Todo }) {
   }, [db, todo]);
 
   return (
-    <View style={styles.todoRow}>
+    <View testID="todo-item" style={styles.todoRow}>
       <Pressable
+        testID="todo-checkbox"
         onPress={handleToggle}
         style={({ pressed }) => [
           styles.checkbox,
@@ -113,6 +116,7 @@ function TodoItem({ todo }: { todo: Todo }) {
         {title}
       </Text>
       <Pressable
+        testID="todo-delete"
         onPress={handleDelete}
         style={({ pressed }) => [styles.deleteBtn, pressed && styles.deleteBtnPressed]}
         hitSlop={8}
@@ -186,7 +190,7 @@ function TodoList() {
       <FilterTabs active={filter} onChange={setFilter} />
 
       <View style={styles.statsRow}>
-        <Text style={styles.statsText}>
+        <Text testID="stats-text" style={styles.statsText}>
           {activeCount} remaining · {completedCount} done
         </Text>
       </View>
@@ -258,6 +262,7 @@ function BottomActions() {
   return (
     <View style={styles.bottomActions}>
       <Pressable
+        testID="seed-btn"
         onPress={handleSeed}
         style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
       >
@@ -266,6 +271,7 @@ function BottomActions() {
 
       {count > 0 && (
         <Pressable
+          testID="clear-completed-btn"
           onPress={handleClearCompleted}
           style={({ pressed }) => [
             styles.actionBtn,

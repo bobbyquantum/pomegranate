@@ -1,0 +1,20 @@
+appId: com.pomegranatedb.todo.demo
+name: Delete a todo
+---
+# Wait for app
+- assertVisible: "PomegranateDB"
+
+# Add a todo to delete
+- tapOn:
+    id: "todo-input"
+- inputText: "Delete me"
+- pressKey: Enter
+- assertVisible: "Delete me"
+
+# Delete it
+- tapOn:
+    id: "todo-delete"
+    index: 0
+
+# Verify it's gone
+- assertNotVisible: "Delete me"
