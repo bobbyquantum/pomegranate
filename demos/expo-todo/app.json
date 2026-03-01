@@ -29,12 +29,6 @@
     },
     "plugins": [
       "expo-sqlite"
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "9e4cf072-20a4-4767-891e-6fcbee40cf3a"
-      }
-    },
-    "owner": "bobbyquantum"
+    ]
   }
 }

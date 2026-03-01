@@ -154,8 +154,7 @@ jobs:
 
   # ─── iOS Simulator e2e (Maestro) ────────────────────────────────────────────
   #
-  # Builds the Expo demo app for iOS Simulator using EAS Build (local mode)
-  # and runs Maestro UI test flows.
+  # Builds the Expo demo app for iOS Simulator and runs Maestro flows.
 
   e2e-ios:
     name: iOS e2e (Maestro)
@@ -166,8 +165,6 @@ jobs:
     timeout-minutes: 45
     env:
       EXPO_PUBLIC_ADAPTER: loki-memory
-      EAS_LOCAL_BUILD_SKIP_CLEANUP: 1
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -191,29 +188,68 @@ jobs:
         run: npm pack
         working-directory: .
 
-      # ── Build with EAS (local) ──────────────────────────────────────
+      # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
         run: npm install --no-package-lock
 
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: Expo prebuild (iOS)
+        run: npx expo prebuild --platform ios --clean
 
-      - name: Build iOS app (EAS local)
+      # ExpoModulesCore 55.x (swift_version='6.0') uses @MainActor
+      # conformance annotations (Swift 6-only syntax) AND has concurrency
+      # violations that are hard errors in Swift 6 mode (where
+      # SWIFT_STRICT_CONCURRENCY=minimal is ignored by design).
+      #
+      # Fix: patch out the two @MainActor conformance annotations so the
+      # code parses in Swift 5 mode.  Then override SWIFT_VERSION to 5.0
+      # for ExpoModulesCore so concurrency issues become warnings, not
+      # errors, under minimal concurrency checking.
+      - name: Patch ExpoModulesCore for Swift 5 compat
         run: |
-          eas build \
-            --platform ios \
-            --profile simulator \
-            --local \
-            --output build/PomegranateDBTodo.tar.gz \
-            --non-interactive
+          EMC=node_modules/expo-modules-core/ios
+          # 1) Remove @MainActor conformance attribute (Swift-6-only syntax)
+          sed -i '' 's/@MainActor AnyExpoSwiftUIHostingView/AnyExpoSwiftUIHostingView/' \
+            "$EMC/Core/Views/SwiftUI/SwiftUIHostingView.swift"
+          sed -i '' 's/extension UIView: @MainActor AnyArgument/extension UIView: AnyArgument/' \
+            "$EMC/Core/Views/ViewDefinition.swift"
+          echo "Patched out @MainActor conformance annotations"
 
-      - name: Extract .app from build
+      - name: Expo prebuild (iOS)
+        run: npx expo prebuild --platform ios --clean
+
+      # Override SWIFT_VERSION to 5.0 for ExpoModulesCore (the podspec
+      # sets 6.0 which makes concurrency violations hard errors).
+      - name: Podfile – force Swift 5 for ExpoModulesCore
         run: |
-          mkdir -p build/app
-          tar -xzf build/PomegranateDBTodo.tar.gz -C build/app
-          APP_PATH=$(find build/app -name '*.app' -type d | head -1)
-          echo "APP_PATH=$APP_PATH"
-          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+          cd ios
+          ruby -e "
+            podfile = File.read('Podfile')
+            patch = <<~'RUBY'
+              # --- CI patch: compile ExpoModulesCore in Swift 5 mode ---
+              installer.pods_project.targets.each do |target|
+                if target.name == 'ExpoModulesCore'
+                  target.build_configurations.each do |config|
+                    config.build_settings['SWIFT_VERSION'] = '5.0'
+                  end
+                end
+              end
+            RUBY
+            podfile.sub!('react_native_post_install(', patch + \"\\n    react_native_post_install(\")
+            File.write('Podfile', podfile)
+          "
+          echo '--- Patched Podfile ---'
+          grep -A 8 'CI patch' Podfile || true
+          pod install
+
+      # Expo prebuild sets export SKIP_BUNDLING=1 for Debug builds in
+      # the "Bundle React Native code" script phase, before invoking the
+      # actual bundle script. The script also sources .xcode.env.updates
+      # specifically to allow this to be overridden.
+      - name: Enable JS bundling for CI
+        run: |
+          echo 'unset SKIP_BUNDLING'    >  ios/.xcode.env.updates
+          echo 'export FORCE_BUNDLING=1' >> ios/.xcode.env.updates
+          cat ios/.xcode.env.updates
 
       # ── Discover simulator UDID ─────────────────────────────────────
       - name: Select iOS Simulator
@@ -246,10 +282,56 @@ jobs:
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID"
 
-      # ── Install & run ───────────────────────────────────────────────
-      - name: Install app in simulator
-        run: xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
+      # ── Build for simulator ─────────────────────────────────────────
+      - name: Build iOS app (Simulator)
+        run: |
+          set -o pipefail
+          WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
+          # The scheme name matches the Xcode project name (set by expo prebuild)
+          SCHEME="PomegranateDBTodo"
+          echo "Building workspace=$WORKSPACE scheme=$SCHEME udid=$SIMULATOR_UDID"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "id=$SIMULATOR_UDID" \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_STRICT_CONCURRENCY=minimal \
+            2>&1 | tee /tmp/xcode.log
+          exit ${PIPESTATUS[0]}
+        env:
+          NSUnbufferedIO: YES
 
+      # ── Install into the already-booted simulator ───────────────────
+      - name: Install app in simulator
+        run: |
+          # The build step used  -derivedDataPath ios/build -configuration Release
+          # so the .app bundle is under ios/build/Build/Products/Release-iphonesimulator/.
+          # Exclude any *Tests.app bundles which lack CFBundleIdentifier (exit 65).
+          PRODUCTS_DIR="ios/build/Build/Products/Release-iphonesimulator"
+          echo "Looking for .app in $PRODUCTS_DIR …"
+          ls -la "$PRODUCTS_DIR/" 2>/dev/null || true
+          APP_PATH=$(find "$PRODUCTS_DIR" -maxdepth 1 -name '*.app' \
+            -not -name '*Tests*' -type d | head -1)
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: no .app found under $PRODUCTS_DIR" >&2
+            find ios/build -name '*.app' -type d 2>/dev/null >&2 || true
+            exit 1
+          fi
+          echo "APP_PATH=$APP_PATH"
+          # Verify bundle ID is present (diagnoses exit-65 'Missing bundle ID')
+          BID=$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Info.plist" 2>/dev/null || echo '')
+          echo "CFBundleIdentifier=$BID"
+          if [ -z "$BID" ]; then
+            echo "ERROR: CFBundleIdentifier is empty — simctl install will fail" >&2
+            plutil -p "$APP_PATH/Info.plist" >&2 || true
+            exit 1
+          fi
+          xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
+
+      # ── Maestro ─────────────────────────────────────────────────────
       - name: Install Maestro
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
@@ -260,21 +342,35 @@ jobs:
           export PATH="$HOME/.maestro/bin:$PATH"
           xcrun simctl launch "$SIMULATOR_UDID" com.pomegranatedb.todo.demo
           sleep 15
+
+          # Diagnostics: what does the app show?
+          echo "=== Simulator screenshot ==="
+          xcrun simctl io "$SIMULATOR_UDID" screenshot /tmp/ios-screenshot.png 2>/dev/null || true
+
+          echo "=== App console log (last 60 lines) ==="
+          xcrun simctl spawn "$SIMULATOR_UDID" log show \
+            --predicate 'subsystem == "com.pomegranatedb.todo.demo" OR process == "PomegranateDBTodo"' \
+            --last 30s --style compact 2>/dev/null | tail -60 || true
+
+          echo "=== Contents of .app bundle ==="
+          ls -la ios/build/Build/Products/Release-iphonesimulator/PomegranateDBTodo.app/ 2>/dev/null | head -20 || true
+
           maestro test maestro/
 
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: maestro-ios-report
+          name: maestro-report
           path: |
             ~/.maestro/tests/
+            /tmp/ios-screenshot.png
           retention-days: 7
 
   # ─── Android Emulator e2e (Maestro) ─────────────────────────────────────────
   #
-  # Builds the Expo demo app for Android using EAS Build (local mode)
-  # and runs Maestro UI test flows on an emulator.
+  # Builds the Expo demo app for Android and runs the same Maestro flows as iOS.
+  # ubuntu-latest has KVM support, making emulator startup ~3× faster than macOS.
 
   e2e-android:
     name: Android e2e (Maestro)
@@ -285,8 +381,6 @@ jobs:
     timeout-minutes: 60
     env:
       EXPO_PUBLIC_ADAPTER: loki-memory
-      EAS_LOCAL_BUILD_SKIP_CLEANUP: 1
-      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -329,42 +423,28 @@ jobs:
         run: npm pack
         working-directory: .
 
-      # ── Build with EAS (local) ──────────────────────────────────────
+      # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
         run: npm install --no-package-lock
 
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: Expo prebuild (Android)
+        run: npx expo prebuild --platform android --clean
 
-      - name: Generate debug keystore & credentials
+      # Force-bundle JS into the debug APK (no Metro server in CI)
+      # debuggableVariants=[] makes the gradle plugin bundle JS into the APK
+      - name: Force JS bundling for debug
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -alias debug \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=CI,OU=CI,O=CI,L=CI,S=CI,C=US"
-          cat > credentials.json <<'EOF'
-          {
-            "android": {
-              "keystore": {
-                "keystorePath": "debug.keystore",
-                "keystorePassword": "android",
-                "keyAlias": "debug",
-                "keyPassword": "android"
-              }
-            }
-          }
-          EOF
+          sed -i '/^react {/a\    debuggableVariants = []' android/app/build.gradle
 
-      - name: Build Android APK (EAS local)
+      # Disable dev support so the app loads the bundled JS instead of trying Metro
+      - name: Disable dev mode for CI
         run: |
-          eas build \
-            --platform android \
-            --profile preview \
-            --local \
-            --output build/PomegranateDBTodo.apk \
-            --non-interactive
+          find android -name 'MainApplication.kt' -exec \
+            sed -i 's/getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG/getUseDeveloperSupport(): Boolean = false/' {} \;
+
+      - name: Build Android APK (debug)
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        working-directory: demos/expo-todo/android
 
       # ── Install Maestro ─────────────────────────────────────────────
       - name: Install Maestro
@@ -376,15 +456,29 @@ jobs:
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 31
+          api-level: 29
           arch: x86_64
           target: default
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            adb install demos/expo-todo/build/PomegranateDBTodo.apk
+            adb install "$(find demos/expo-todo/android/app/build/outputs/apk/debug -name '*.apk' | head -1)"
             adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
             sleep 20
+
+            echo "=== JS LOGCAT ==="
+            adb logcat -d ReactNativeJS:V '*:S' | tail -40 || true
+
+            echo "=== ERROR LOGCAT ==="
+            adb logcat -d '*:E' | grep -i 'react\|js\|bundle\|fatal' | tail -30 || true
+
+            echo "=== UI HIERARCHY ==="
+            adb exec-out uiautomator dump /dev/tty 2>/dev/null || true
+            echo ""
+
+            echo "=== SCREENSHOT ==="
+            adb exec-out screencap -p > /tmp/app-screenshot.png 2>/dev/null || true
+
             $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
 
       - name: Upload Maestro output
@@ -395,6 +489,7 @@ jobs:
           path: |
             ~/.maestro/tests/
             /tmp/maestro-debug/
+            /tmp/app-screenshot.png
           retention-days: 7
 
   # ─── Podspec lint ────────────────────────────────────────────────────────────
