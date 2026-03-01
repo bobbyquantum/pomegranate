@@ -15,6 +15,7 @@
       "supportsTablet": true
     },
     "android": {},
+    "web": {},
     "plugins": [
       "expo-sqlite"
     ]
