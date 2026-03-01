@@ -336,6 +336,27 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
+      - name: Generate debug keystore & credentials
+        run: |
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -alias debug \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=CI,OU=CI,O=CI,L=CI,S=CI,C=US"
+          cat > credentials.json <<'EOF'
+          {
+            "android": {
+              "keystore": {
+                "keystorePath": "debug.keystore",
+                "keystorePassword": "android",
+                "keyAlias": "debug",
+                "keyPassword": "android"
+              }
+            }
+          }
+          EOF
+
       - name: Build Android APK (EAS local)
         run: |
           eas build \
