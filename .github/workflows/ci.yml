@@ -251,10 +251,15 @@ jobs:
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
         run: |
-          APP_PATH=$(find ios/build -name "*.app" -type d | head -1)
+          # Look ONLY in the final product directory, not intermediate build dirs
+          APP_PATH=$(find ios/build/Build/Products/Release-iphonesimulator \
+            -maxdepth 1 -name "*.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: no .app found under ios/build" >&2
-            find ios/build -type d | head -30 >&2
+            echo "ERROR: no .app found in Release-iphonesimulator" >&2
+            echo "=== Products directory tree ==" >&2
+            find ios/build/Build/Products -maxdepth 3 -type d 2>/dev/null >&2 || true
+            echo "=== Full ios/build tree ==" >&2
+            find ios/build -maxdepth 4 -type d 2>/dev/null | head -40 >&2
             exit 1
           fi
           echo "Installing $APP_PATH into $SIMULATOR_UDID"
@@ -341,6 +346,17 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon --stacktrace
         working-directory: demos/expo-todo/android
 
+      # ── Accept SDK licenses and pre-install system image ───────────
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        working-directory: .
+
+      - name: Install Android system image
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "system-images;android-34;default;x86_64"
+        working-directory: .
+
       # ── Install Maestro ─────────────────────────────────────────────
       - name: Install Maestro
         run: |
@@ -357,6 +373,7 @@ jobs:
           profile: pixel_6
           ram-size: 4096M
           heap-size: 512M
+          force-avd-creation: false
           emulator-options: >-
             -no-snapshot-save -no-window -gpu swiftshader_indirect
             -noaudio -no-boot-anim -camera-back none
