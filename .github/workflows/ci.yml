@@ -175,6 +175,12 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      # ── Select Xcode 16.2 to avoid Swift 6 strict concurrency errors ──
+      # Xcode 16.4 (macos-15 default) compiles with -swift-version 6, which
+      # breaks expo-modules-core. Xcode 16.2 uses Swift 5 and works fine.
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
       # ── Build the library ───────────────────────────────────────────
       - name: Install root deps
         run: npm ci
@@ -342,6 +348,12 @@ jobs:
 
       - name: Build library
         run: npm run build
+        working-directory: .
+
+      - name: Download SQLite amalgamation
+        run: |
+          chmod +x scripts/setup-sqlite
+          ./scripts/setup-sqlite
         working-directory: .
 
       - name: Pack library tarball
