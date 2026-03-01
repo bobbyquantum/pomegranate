@@ -1,0 +1,25 @@
+{
+  "cli": {
+    "version": ">= 10.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "simulator": {
+      "ios": {
+        "simulator": true,
+        "buildType": "release"
+      },
+      "env": {
+        "EXPO_PUBLIC_ADAPTER": "loki-memory"
+      }
+    },
+    "preview": {
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_ADAPTER": "loki-memory"
+      }
+    }
+  }
+}
