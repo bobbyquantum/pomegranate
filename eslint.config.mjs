@@ -62,7 +62,7 @@ export default tseslint.config(
         prefer: 'type-imports',
         fixStyle: 'separate-type-imports',
       }],
-      '@typescript-eslint/no-require-imports': 'off', // We use require() for lazy loading
+      '@typescript-eslint/no-require-imports': 'error',
       '@typescript-eslint/no-this-alias': 'off', // Used in observable patterns
       '@typescript-eslint/ban-ts-comment': 'off',
 
@@ -97,6 +97,11 @@ export default tseslint.config(
       'unicorn/switch-case-braces': ['warn', 'avoid'],
       'unicorn/catch-error-name': ['warn', { name: 'error' }],
       'unicorn/prefer-node-protocol': 'off', // Not relevant for RN library
+      'unicorn/prefer-add-event-listener': 'off', // Worker onmessage is the standard pattern
+      'unicorn/prefer-global-this': 'off', // Worker self is the standard pattern
+      'unicorn/prefer-structured-clone': 'warn',
+      'unicorn/prefer-type-error': 'warn',
+      'unicorn/prefer-export-from': 'warn',
       'unicorn/import-style': 'off', // We have our own import conventions
       'unicorn/no-process-exit': 'off', // Not applicable
 
@@ -139,6 +144,12 @@ export default tseslint.config(
       'unicorn/prefer-node-protocol': 'off',
       'unicorn/prefer-structured-clone': 'off',
       'unicorn/no-array-sort': 'off',
+      'unicorn/filename-case': 'off',
+      'unicorn/prefer-at': 'off',
+      'unicorn/catch-error-name': 'off',
+      'unicorn/prefer-add-event-listener': 'off',
+      'unicorn/prefer-global-this': 'off',
+      'unicorn/prefer-type-error': 'off',
     },
   },
 

@@ -56,12 +56,13 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
   let db: ExpoSQLiteDatabase | null = null;
   let expoSQLite: ExpoSQLiteModule | null = null;
 
-  // Lazily require expo-sqlite so this module can be imported
+  // Lazily import expo-sqlite so this module can be imported
   // without expo-sqlite being installed (e.g. in tests).
-  function getExpoSQLite(): ExpoSQLiteModule {
+  async function getExpoSQLite(): Promise<ExpoSQLiteModule> {
     if (!expoSQLite) {
       try {
-        expoSQLite = require('expo-sqlite') as ExpoSQLiteModule;
+        // @ts-expect-error — expo-sqlite is an optional peer dependency
+        expoSQLite = await import('expo-sqlite') as ExpoSQLiteModule;
       } catch {
         throw new Error(
           'expo-sqlite is not installed. Install it with: npx expo install expo-sqlite',
@@ -80,7 +81,7 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
 
   return {
     async open(name: string): Promise<void> {
-      const sqlite = getExpoSQLite();
+      const sqlite = await getExpoSQLite();
       db = await sqlite.openDatabaseAsync(
         name.endsWith('.db') ? name : `${name}.db`,
         config?.openOptions,

@@ -69,7 +69,7 @@ export function createNativeSQLiteDriver(config?: NativeSQLiteDriverConfig): SQL
    * On Android, this requires calling NativeModules.PomegranateJSIBridge.install()
    * which loads the .so and registers the global function.
    */
-  function ensureInstalled(): void {
+  async function ensureInstalled(): Promise<void> {
     if (typeof globalThis.nativePomegranateCreateAdapter === 'function') {
       return; // Already installed
     }
@@ -84,7 +84,7 @@ export function createNativeSQLiteDriver(config?: NativeSQLiteDriverConfig): SQL
 
     // Auto-install by calling the native module
     try {
-      const { NativeModules } = require('react-native');
+      const { NativeModules } = await import('react-native');
       const bridge = NativeModules.PomegranateJSIBridge;
       if (!bridge) {
         throw new Error(
@@ -119,7 +119,7 @@ export function createNativeSQLiteDriver(config?: NativeSQLiteDriverConfig): SQL
 
   return {
     async open(name: string): Promise<void> {
-      ensureInstalled();
+      await ensureInstalled();
       adapter = globalThis.nativePomegranateCreateAdapter!(name);
     },
 

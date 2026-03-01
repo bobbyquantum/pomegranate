@@ -262,7 +262,7 @@ export function useCount<M extends Model>(
 // ─── DatabaseProvider ──────────────────────────────────────────────────────
 
 import { createContext, useContext, createElement, type ReactNode } from 'react';
-import type { Database } from '../database/Database';
+import { Database } from '../database/Database';
 import type { DatabaseConfig } from '../database/Database';
 
 const DatabaseContext = createContext<Database | null>(null);
@@ -315,8 +315,7 @@ type ResourceStatus<T> =
  * - On error: throws the error (React error boundary catches it)
  */
 function createDatabaseResource(config: DatabaseConfig): { read(): Database } {
-  const { Database: DB } = require('../database/Database');
-  const db = new DB(config);
+  const db = new Database(config);
 
   let status: ResourceStatus<Database> = {
     state: 'pending',

@@ -37,7 +37,7 @@ export class EncryptionManager {
   /** Encrypt a string value */
   async encrypt(plaintext: string): Promise<string> {
     const key = await this.getKey();
-    const iv = randomBytes(12);
+    const iv = await randomBytes(12);
     const encoder = new TextEncoder();
     const data = encoder.encode(plaintext);
 
@@ -60,7 +60,7 @@ export class EncryptionManager {
 
     // Fallback: Node.js crypto
     try {
-      const crypto = require('crypto');
+      const crypto = await import('crypto');
       const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
       const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
       const tag = cipher.getAuthTag();
@@ -96,7 +96,7 @@ export class EncryptionManager {
 
     // Fallback: Node.js crypto
     try {
-      const crypto = require('crypto');
+      const crypto = await import('crypto');
       const iv = decodeBase64(parts[0]);
       const data = decodeBase64(parts[1]);
       const tag = decodeBase64(parts[2]);
@@ -290,7 +290,7 @@ export class EncryptingAdapter implements StorageAdapter {
 
 // ─── Utility functions ──────────────────────────────────────────────────
 
-function randomBytes(length: number): Uint8Array {
+async function randomBytes(length: number): Promise<Uint8Array> {
   if (globalThis.crypto !== undefined && globalThis.crypto.getRandomValues) {
     const buf = new Uint8Array(length);
     globalThis.crypto.getRandomValues(buf);
@@ -298,7 +298,7 @@ function randomBytes(length: number): Uint8Array {
   }
 
   try {
-    const crypto = require('crypto');
+    const crypto = await import('crypto');
     return new Uint8Array(crypto.randomBytes(length));
   } catch {
     // Last resort: Math.random (NOT cryptographically secure)

@@ -47,8 +47,8 @@ async function processNext(): Promise<void> {
       // Auto-create IncrementalIDBAdapter for browser persistence
       let persistenceAdapter: unknown;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
+        // @ts-expect-error — lokijs sub-module has no type declarations
+        const { default: IncrementalIDBAdapter } = await import('lokijs/src/incremental-indexeddb-adapter');
         persistenceAdapter = new IncrementalIDBAdapter();
       } catch {
         // IndexedDB not available — fall back to memory-only
