@@ -1,8 +1,10 @@
 appId: com.pomegranatedb.todo.demo
 name: Delete a todo
 ---
-# Wait for app
-- assertVisible: "PomegranateDB"
+# Wait for app (30s for slow CI emulators)
+- assertVisible:
+    text: "PomegranateDB"
+    timeout: 30000
 
 # Add a todo to delete
 - tapOn:

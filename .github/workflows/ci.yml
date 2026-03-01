@@ -195,11 +195,38 @@ jobs:
       - name: Expo prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
 
+      # ExpoModulesCore 55.x (swift_version='6.0') uses @MainActor
+      # conformance syntax that only compiles in Swift 6 language mode.
+      # expo prebuild sets project-level SWIFT_VERSION=5.0 which
+      # overrides the podspec. We patch the Podfile post_install to
+      # restore Swift 6.0 for ExpoModulesCore specifically.
+      - name: Patch Podfile for ExpoModulesCore Swift 6
+        run: |
+          cd ios
+          ruby -e "
+            podfile = File.read('Podfile')
+            patch = <<~'RUBY'
+              # --- CI patch: ExpoModulesCore needs Swift 6 language mode ---
+              installer.pods_project.targets.each do |target|
+                if target.name == 'ExpoModulesCore'
+                  target.build_configurations.each do |config|
+                    config.build_settings['SWIFT_VERSION'] = '6.0'
+                    config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
+                  end
+                end
+              end
+            RUBY
+            # Insert patch inside the existing post_install block
+            podfile.sub!('react_native_post_install(', patch + \"\\n    react_native_post_install(\")
+            File.write('Podfile', podfile)
+          "
+          echo '--- Patched Podfile post_install ---'
+          grep -A 10 'CI patch' Podfile || true
+          pod install
+
       # ── Build with default Xcode (16.4, Swift 6.1) ─────────────────
-      # ExpoModulesCore 55.x uses @MainActor conformance syntax that
-      # requires Swift 6.1 (Xcode 16.4+). The default Xcode on macos-15
-      # provides this. SWIFT_STRICT_CONCURRENCY=minimal demotes any
-      # remaining concurrency diagnostics to warnings.
+      # SWIFT_STRICT_CONCURRENCY=minimal on xcodebuild demotes any
+      # remaining concurrency diagnostics to warnings for all targets.
 
       # ── Discover simulator UDID ─────────────────────────────────────
       - name: Select iOS Simulator
@@ -366,11 +393,10 @@ jobs:
         run: npx expo prebuild --platform android --clean
 
       # Force-bundle JS into the debug APK (no Metro server in CI)
-      # debuggableVariants=[] forces bundling; extraPackagerArgs overrides
-      # the implicit --dev=false so testIDs remain visible to Maestro
+      # debuggableVariants=[] makes the gradle plugin bundle JS into the APK
       - name: Force JS bundling for debug
         run: |
-          sed -i '/^react {/a\    debuggableVariants = []\n    extraPackagerArgs = ["--dev", "true"]' android/app/build.gradle
+          sed -i '/^react {/a\    debuggableVariants = []' android/app/build.gradle
 
       # Disable dev support so the app loads the bundled JS instead of trying Metro
       - name: Disable dev mode for CI
@@ -400,16 +426,32 @@ jobs:
           script: |
             adb install "$(find demos/expo-todo/android/app/build/outputs/apk/debug -name '*.apk' | head -1)"
             adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
-            sleep 15
-            adb logcat -d '*:E' ReactNativeJS:V | tail -80 || true
-            $HOME/.maestro/bin/maestro test demos/expo-todo/maestro/
+            sleep 20
+
+            echo "=== JS LOGCAT ==="
+            adb logcat -d ReactNativeJS:V '*:S' | tail -40 || true
+
+            echo "=== ERROR LOGCAT ==="
+            adb logcat -d '*:E' | grep -i 'react\|js\|bundle\|fatal' | tail -30 || true
+
+            echo "=== UI HIERARCHY ==="
+            adb exec-out uiautomator dump /dev/tty 2>/dev/null || true
+            echo ""
+
+            echo "=== SCREENSHOT ==="
+            adb exec-out screencap -p > /tmp/app-screenshot.png 2>/dev/null || true
+
+            $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
 
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: maestro-android-report
-          path: ~/.maestro/tests/
+          path: |
+            ~/.maestro/tests/
+            /tmp/maestro-debug/
+            /tmp/app-screenshot.png
           retention-days: 7
 
   # ─── Podspec lint ────────────────────────────────────────────────────────────
