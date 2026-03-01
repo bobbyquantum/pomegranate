@@ -18,8 +18,10 @@ name: Delete a todo
       id: "todo-item"
     timeout: 15000
 
-# Ensure keyboard is dismissed and UI has settled before tapping delete
-- tapOn: "PomegranateDB"
+# Dismiss keyboard by tapping a focusable element above the keyboard area.
+# "PomegranateDB" header is non-focusable, so it won't dismiss the keyboard
+# on Android.  The "All" filter tab is focusable and already active (no-op).
+- tapOn: "All"
 - waitForAnimationToEnd
 
 # Delete it
