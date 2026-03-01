@@ -8,7 +8,8 @@ name: Add a todo
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
-- pressKey: Enter
+- tapOn:
+    id: "add-todo-btn"
 
 # Verify the todo appears
 - assertVisible: "Buy milk"

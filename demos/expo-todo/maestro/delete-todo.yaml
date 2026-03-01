@@ -8,7 +8,8 @@ name: Delete a todo
 - tapOn:
     id: "todo-input"
 - inputText: "Delete me"
-- pressKey: Enter
+- tapOn:
+    id: "add-todo-btn"
 - assertVisible: "Delete me"
 
 # Delete it
