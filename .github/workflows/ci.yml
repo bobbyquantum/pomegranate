@@ -158,7 +158,7 @@ jobs:
 
   e2e-ios:
     name: iOS e2e (Maestro)
-    runs-on: macos-15
+    runs-on: macos-14
     defaults:
       run:
         working-directory: demos/expo-todo
@@ -174,6 +174,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+
+      # ── Use Xcode 15.4 (Swift 5.10) to avoid Swift 6 concurrency errors ──
+      # Xcode 16.x Swift 6 compiler breaks expo-modules-core even in Swift 5
+      # language mode. Xcode 15.4 (Swift 5.10) avoids the issue entirely.
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
       # ── Build the library ───────────────────────────────────────────
       - name: Install root deps
@@ -201,7 +207,7 @@ jobs:
           UDID=$(xcrun simctl list devices available -j | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
-          # Prefer iPhone 16, fall back to any available iPhone simulator
+          # Prefer iPhone 15 (Xcode 15.4 ships iOS 17.x simulators)
           preferred = []
           fallback = []
           for runtime, devs in data['devices'].items():
@@ -210,7 +216,7 @@ jobs:
             for d in devs:
               if not d['isAvailable']:
                 continue
-              if 'iPhone 16' in d['name']:
+              if 'iPhone 15' in d['name']:
                 preferred.append(d['udid'])
               elif 'iPhone' in d['name']:
                 fallback.append(d['udid'])
@@ -246,11 +252,11 @@ jobs:
             -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath ios/build \
             CODE_SIGNING_ALLOWED=NO \
-            SWIFT_VERSION=5 \
             2>&1 | tee /tmp/xcode.log
           exit ${PIPESTATUS[0]}
         env:
           NSUnbufferedIO: YES
+          FORCE_BUNDLING: "1"
 
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
@@ -362,6 +368,11 @@ jobs:
       - name: Expo prebuild (Android)
         run: npx expo prebuild --platform android --clean
 
+      # Force-bundle JS into the debug APK (no Metro server in CI)
+      - name: Enable bundleInDebug
+        run: |
+          sed -i 's/^react {/react {\n    bundleInDebug = true/' android/app/build.gradle
+
       - name: Build Android APK (debug)
         run: ./gradlew assembleDebug --no-daemon --stacktrace
         working-directory: demos/expo-todo/android
@@ -383,6 +394,9 @@ jobs:
           disable-animations: true
           script: |
             adb install "$(find demos/expo-todo/android/app/build/outputs/apk/debug -name '*.apk' | head -1)"
+            adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
+            sleep 5
+            adb logcat -d '*:E' | tail -50 || true
             $HOME/.maestro/bin/maestro test demos/expo-todo/maestro/
 
       - name: Upload Maestro output
