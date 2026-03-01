@@ -254,18 +254,35 @@ jobs:
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
         run: |
-          # Look ONLY in the final product directory, not intermediate build dirs
-          APP_PATH=$(find ios/build/Build/Products/Debug-iphonesimulator \
-            -maxdepth 1 -name "*.app" -type d | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: no .app found in Debug-iphonesimulator" >&2
-            echo "=== Products directory tree ==" >&2
-            find ios/build/Build/Products -maxdepth 3 -type d 2>/dev/null >&2 || true
-            echo "=== Full ios/build tree ==" >&2
-            find ios/build -maxdepth 4 -type d 2>/dev/null | head -40 >&2
+          # Use xcodebuild -showBuildSettings to get the EXACT product path.
+          # find -maxdepth 1 can still pick up test bundles (e.g. *Tests.app)
+          # that lack CFBundleIdentifier, causing xcrun simctl install to exit 65.
+          WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
+            | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
+          SETTINGS=$(xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "id=$SIMULATOR_UDID" \
+            CODE_SIGNING_ALLOWED=NO \
+            -showBuildSettings 2>/dev/null)
+          BUILT_DIR=$(echo "$SETTINGS" | grep 'BUILT_PRODUCTS_DIR' | head -1 \
+            | sed 's/.*= //' | xargs)
+          PRODUCT=$(echo "$SETTINGS" | grep 'FULL_PRODUCT_NAME' | head -1 \
+            | sed 's/.*= //' | xargs)
+          APP_PATH="$BUILT_DIR/$PRODUCT"
+          echo "Resolved: WORKSPACE=$WORKSPACE SCHEME=$SCHEME"
+          echo "APP_PATH=$APP_PATH"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: app not found at $APP_PATH" >&2
+            find ios/build/Build/Products -maxdepth 3 -name '*.app' -type d 2>/dev/null >&2 || true
             exit 1
           fi
-          echo "Installing $APP_PATH into $SIMULATOR_UDID"
+          # Verify bundle ID is present (diagnoses exit-65 'Missing bundle ID')
+          BID=$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Info.plist" 2>/dev/null || echo '')
+          echo "CFBundleIdentifier=$BID"
           xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
 
       # ── Maestro ─────────────────────────────────────────────────────
@@ -349,14 +366,13 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon --stacktrace
         working-directory: demos/expo-todo/android
 
-      # ── Accept SDK licenses and pre-install system image ───────────
-      # API 29 (Android 10) is the most reliable API level on ubuntu-latest GH runners.
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
-        working-directory: .
-
-      - name: Install Android system image
-        run: sdkmanager "system-images;android-29;default;x86_64"
+      # ── Accept SDK licenses + pre-install emulator & system image ────
+      # 'emulator' is NOT pre-installed on ubuntu-latest; install it explicitly
+      # so the reactivecircus action can find it. API 29 is the most stable level.
+      - name: Install Android emulator packages
+        run: |
+          yes | sdkmanager --licenses 2>/dev/null || true
+          sdkmanager "emulator" "system-images;android-29;default;x86_64"
         working-directory: .
 
       # ── Install Maestro ─────────────────────────────────────────────
@@ -372,13 +388,7 @@ jobs:
           api-level: 29
           arch: x86_64
           target: default
-          profile: pixel_6
-          ram-size: 4096M
-          heap-size: 512M
-          force-avd-creation: false
-          emulator-options: >-
-            -no-snapshot-save -no-window -gpu swiftshader_indirect
-            -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
             APK=$(find demos/expo-todo/android/app/build/outputs/apk/debug -name "*.apk" | head -1)
