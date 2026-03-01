@@ -6,8 +6,7 @@
   "build": {
     "simulator": {
       "ios": {
-        "simulator": true,
-        "buildType": "release"
+        "simulator": true
       },
       "env": {
         "EXPO_PUBLIC_ADAPTER": "loki-memory"
