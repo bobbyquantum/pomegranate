@@ -194,9 +194,12 @@ jobs:
       - name: Install demo deps
         run: npm install --no-package-lock
 
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
       - name: Build iOS app (EAS local)
         run: |
-          npx eas build \
+          eas build \
             --platform ios \
             --profile simulator \
             --local \
@@ -328,9 +331,12 @@ jobs:
       - name: Install demo deps
         run: npm install --no-package-lock
 
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
       - name: Build Android APK (EAS local)
         run: |
-          npx eas build \
+          eas build \
             --platform android \
             --profile preview \
             --local \
