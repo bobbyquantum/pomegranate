@@ -8,20 +8,20 @@ name: Delete a todo
 # Wait for app to fully load
 - assertVisible: "PomegranateDB"
 
-# Add a todo to delete (pressKey: Enter submits and dismisses keyboard)
+# Add a todo to delete
 - tapOn:
     id: "todo-input"
 - inputText: "Delete me"
-- pressKey: Enter
+- tapOn:
+    id: "add-todo-btn"
 - extendedWaitUntil:
     visible:
       id: "todo-item"
     timeout: 15000
 
-# Dismiss keyboard by tapping a focusable element above the keyboard area.
-# "PomegranateDB" header is non-focusable, so it won't dismiss the keyboard
-# on Android.  The "All" filter tab is focusable and already active (no-op).
-- tapOn: "All"
+# Dismiss keyboard by tapping the filter area (above keyboard, non-input)
+- tapOn:
+    point: "50%,45%"
 - waitForAnimationToEnd
 
 # Delete it
