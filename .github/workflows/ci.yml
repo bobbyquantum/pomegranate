@@ -167,6 +167,7 @@ jobs:
     env:
       EXPO_PUBLIC_ADAPTER: loki-memory
       EAS_LOCAL_BUILD_SKIP_CLEANUP: 1
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -285,6 +286,7 @@ jobs:
     env:
       EXPO_PUBLIC_ADAPTER: loki-memory
       EAS_LOCAL_BUILD_SKIP_CLEANUP: 1
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
