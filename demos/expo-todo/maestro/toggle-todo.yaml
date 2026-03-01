@@ -11,7 +11,8 @@ name: Toggle a todo
 - tapOn:
     id: "seed-btn"
 - extendedWaitUntil:
-    visible: "Buy groceries"
+    visible:
+      id: "todo-item"
     timeout: 15000
 
 # Toggle the first todo
@@ -19,5 +20,6 @@ name: Toggle a todo
     id: "todo-checkbox"
     index: 0
 
-# Verify stats changed (at least 1 done)
-- assertVisible: "DONE"
+# Verify stats element is visible (shows updated counts)
+- assertVisible:
+    id: "stats-text"

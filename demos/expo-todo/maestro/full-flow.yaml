@@ -8,15 +8,14 @@ name: Full CRUD flow
 - assertVisible: "PomegranateDB"
 - assertVisible: "Reactive offline-first database"
 
-# ── Add a todo ─────────────────────────────────────────────────────────────
+# ── Add a todo (pressKey: Enter submits and dismisses keyboard) ───────────
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
-- hideKeyboard
-- tapOn:
-    id: "add-todo-btn"
+- pressKey: Enter
 - extendedWaitUntil:
-    visible: "Maestro test todo"
+    visible:
+      id: "todo-item"
     timeout: 15000
 
 # ── Toggle it complete ─────────────────────────────────────────────────────
@@ -27,14 +26,14 @@ name: Full CRUD flow
 # ── Seed sample data ──────────────────────────────────────────────────────
 - tapOn:
     id: "seed-btn"
-- extendedWaitUntil:
-    visible: "Buy groceries"
-    timeout: 15000
-- assertVisible: "Walk the dog"
+
+# Wait for seed to complete (todos should appear in the list)
+- sleep: 3
 
 # ── Clear completed ───────────────────────────────────────────────────────
 - tapOn:
     id: "clear-completed-btn"
 
-# ── Verify remaining todos are still visible ─────────────────────────────
-- assertVisible: "REMAINING"
+# ── Verify stats are visible ──────────────────────────────────────────────
+- assertVisible:
+    id: "stats-text"

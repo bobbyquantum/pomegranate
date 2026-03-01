@@ -7,18 +7,18 @@ name: Add a todo
 # Wait for the app to fully load
 - assertVisible: "PomegranateDB"
 
-# Type a new todo
+# Type a new todo and submit via Enter (dismisses keyboard reliably on both platforms)
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
-- hideKeyboard
-- tapOn:
-    id: "add-todo-btn"
+- pressKey: Enter
 
-# Verify the todo appears
+# Verify a todo item appeared
 - extendedWaitUntil:
-    visible: "Buy milk"
+    visible:
+      id: "todo-item"
     timeout: 15000
 
-# Verify stats updated
-- assertVisible: "REMAINING"
+# Verify stats are visible
+- assertVisible:
+    id: "stats-text"

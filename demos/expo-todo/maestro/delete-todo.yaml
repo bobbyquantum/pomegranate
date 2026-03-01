@@ -7,15 +7,14 @@ name: Delete a todo
 # Wait for app to fully load
 - assertVisible: "PomegranateDB"
 
-# Add a todo to delete
+# Add a todo to delete (pressKey: Enter submits and dismisses keyboard)
 - tapOn:
     id: "todo-input"
 - inputText: "Delete me"
-- hideKeyboard
-- tapOn:
-    id: "add-todo-btn"
+- pressKey: Enter
 - extendedWaitUntil:
-    visible: "Delete me"
+    visible:
+      id: "todo-item"
     timeout: 15000
 
 # Delete it
@@ -25,5 +24,6 @@ name: Delete a todo
 
 # Verify it's gone (wait for UI update)
 - extendedWaitUntil:
-    notVisible: "Delete me"
+    notVisible:
+      id: "todo-item"
     timeout: 10000
