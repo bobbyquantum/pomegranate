@@ -277,8 +277,15 @@ jobs:
         run: |
           set -o pipefail
           WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
+          # The app scheme is the one matching the project name (not Pods schemes)
           SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
-            | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
+            | awk '/Schemes:/,0' | grep -v 'Schemes:' | xargs -n1 \
+            | grep -i 'PomegranateDB' | head -1)
+          if [ -z "$SCHEME" ]; then
+            echo "ERROR: no PomegranateDB scheme found. Available schemes:" >&2
+            xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null >&2
+            exit 1
+          fi
           echo "Building workspace=$WORKSPACE scheme=$SCHEME udid=$SIMULATOR_UDID"
           xcodebuild \
             -workspace "$WORKSPACE" \
@@ -331,7 +338,9 @@ jobs:
       - name: Run Maestro flows
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
-          MAESTRO_WAIT_TIMEOUT=30000 maestro test maestro/
+          xcrun simctl launch "$SIMULATOR_UDID" com.pomegranatedb.todo.demo
+          sleep 10
+          maestro test maestro/
 
       - name: Upload Maestro output
         if: always()
@@ -454,7 +463,7 @@ jobs:
             echo "=== SCREENSHOT ==="
             adb exec-out screencap -p > /tmp/app-screenshot.png 2>/dev/null || true
 
-            MAESTRO_WAIT_TIMEOUT=30000 $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
+            $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
 
       - name: Upload Maestro output
         if: always()

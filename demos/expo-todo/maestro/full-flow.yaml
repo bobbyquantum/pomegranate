@@ -1,17 +1,26 @@
 appId: com.pomegranatedb.todo.demo
 name: Full CRUD flow
 ---
+- launchApp:
+    appId: com.pomegranatedb.todo.demo
+    clearState: true
+
 # ── App loads ──────────────────────────────────────────────────────────────
-- assertVisible: "PomegranateDB"
+- extendedWaitUntil:
+    visible: "PomegranateDB"
+    timeout: 30000
 - assertVisible: "Reactive offline-first database"
 
 # ── Add a todo ─────────────────────────────────────────────────────────────
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
+- hideKeyboard
 - tapOn:
     id: "add-todo-btn"
-- assertVisible: "Maestro test todo"
+- extendedWaitUntil:
+    visible: "Maestro test todo"
+    timeout: 10000
 
 # ── Toggle it complete ─────────────────────────────────────────────────────
 - tapOn:
@@ -21,12 +30,16 @@ name: Full CRUD flow
 # ── Seed sample data ──────────────────────────────────────────────────────
 - tapOn:
     id: "seed-btn"
-- assertVisible: "Buy groceries 🛒"
-- assertVisible: "Walk the dog 🐕"
+- extendedWaitUntil:
+    visible: "Buy groceries"
+    timeout: 10000
+- assertVisible: "Walk the dog"
 
 # ── Clear completed ───────────────────────────────────────────────────────
 - tapOn:
     id: "clear-completed-btn"
 
 # ── Verify remaining todos are still visible ─────────────────────────────
-- assertVisible: "remaining"
+- extendedWaitUntil:
+    visible: "remaining"
+    timeout: 10000

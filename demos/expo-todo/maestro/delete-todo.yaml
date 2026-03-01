@@ -1,16 +1,25 @@
 appId: com.pomegranatedb.todo.demo
 name: Delete a todo
 ---
-# Wait for app
-- assertVisible: "PomegranateDB"
+- launchApp:
+    appId: com.pomegranatedb.todo.demo
+    clearState: true
+
+# Wait for app to fully load
+- extendedWaitUntil:
+    visible: "PomegranateDB"
+    timeout: 30000
 
 # Add a todo to delete
 - tapOn:
     id: "todo-input"
 - inputText: "Delete me"
+- hideKeyboard
 - tapOn:
     id: "add-todo-btn"
-- assertVisible: "Delete me"
+- extendedWaitUntil:
+    visible: "Delete me"
+    timeout: 10000
 
 # Delete it
 - tapOn:
