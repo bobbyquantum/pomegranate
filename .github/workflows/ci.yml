@@ -277,15 +277,8 @@ jobs:
         run: |
           set -o pipefail
           WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
-          # The app scheme is the one matching the project name (not Pods schemes)
-          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
-            | awk '/Schemes:/,0' | grep -v 'Schemes:' | xargs -n1 \
-            | grep -v '^Pods-' | grep -i 'PomegranateDB' | head -1)
-          if [ -z "$SCHEME" ]; then
-            echo "ERROR: no PomegranateDB scheme found. Available schemes:" >&2
-            xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null >&2
-            exit 1
-          fi
+          # The scheme name matches the Xcode project name (set by expo prebuild)
+          SCHEME="PomegranateDBTodo"
           echo "Building workspace=$WORKSPACE scheme=$SCHEME udid=$SIMULATOR_UDID"
           xcodebuild \
             -workspace "$WORKSPACE" \
