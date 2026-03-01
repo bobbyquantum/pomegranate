@@ -175,12 +175,6 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # ── Select Xcode 16.2 to avoid Swift 6 strict concurrency errors ──
-      # Xcode 16.4 (macos-15 default) compiles with -swift-version 6, which
-      # breaks expo-modules-core. Xcode 16.2 uses Swift 5 and works fine.
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-
       # ── Build the library ───────────────────────────────────────────
       - name: Install root deps
         run: npm ci
@@ -252,6 +246,7 @@ jobs:
             -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath ios/build \
             CODE_SIGNING_ALLOWED=NO \
+            SWIFT_VERSION=5 \
             2>&1 | tee /tmp/xcode.log
           exit ${PIPESTATUS[0]}
         env:
@@ -387,9 +382,7 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            APK=$(find demos/expo-todo/android/app/build/outputs/apk/debug -name "*.apk" | head -1)
-            echo "Installing APK: $APK"
-            adb install "$APK"
+            adb install "$(find demos/expo-todo/android/app/build/outputs/apk/debug -name '*.apk' | head -1)"
             $HOME/.maestro/bin/maestro test demos/expo-todo/maestro/
 
       - name: Upload Maestro output
