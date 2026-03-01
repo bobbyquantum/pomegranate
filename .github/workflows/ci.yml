@@ -196,37 +196,50 @@ jobs:
         run: npx expo prebuild --platform ios --clean
 
       # ExpoModulesCore 55.x (swift_version='6.0') uses @MainActor
-      # conformance syntax that only compiles in Swift 6 language mode.
-      # expo prebuild sets project-level SWIFT_VERSION=5.0 which
-      # overrides the podspec. We patch the Podfile post_install to
-      # restore Swift 6.0 for ExpoModulesCore specifically.
-      - name: Patch Podfile for ExpoModulesCore Swift 6
+      # conformance annotations (Swift 6-only syntax) AND has concurrency
+      # violations that are hard errors in Swift 6 mode (where
+      # SWIFT_STRICT_CONCURRENCY=minimal is ignored by design).
+      #
+      # Fix: patch out the two @MainActor conformance annotations so the
+      # code parses in Swift 5 mode.  Then override SWIFT_VERSION to 5.0
+      # for ExpoModulesCore so concurrency issues become warnings, not
+      # errors, under minimal concurrency checking.
+      - name: Patch ExpoModulesCore for Swift 5 compat
+        run: |
+          EMC=node_modules/expo-modules-core/ios
+          # 1) Remove @MainActor conformance attribute (Swift-6-only syntax)
+          sed -i '' 's/@MainActor AnyExpoSwiftUIHostingView/AnyExpoSwiftUIHostingView/' \
+            "$EMC/Core/Views/SwiftUI/SwiftUIHostingView.swift"
+          sed -i '' 's/extension UIView: @MainActor AnyArgument/extension UIView: AnyArgument/' \
+            "$EMC/Core/Views/ViewDefinition.swift"
+          echo "Patched out @MainActor conformance annotations"
+
+      - name: Expo prebuild (iOS)
+        run: npx expo prebuild --platform ios --clean
+
+      # Override SWIFT_VERSION to 5.0 for ExpoModulesCore (the podspec
+      # sets 6.0 which makes concurrency violations hard errors).
+      - name: Podfile – force Swift 5 for ExpoModulesCore
         run: |
           cd ios
           ruby -e "
             podfile = File.read('Podfile')
             patch = <<~'RUBY'
-              # --- CI patch: ExpoModulesCore needs Swift 6 language mode ---
+              # --- CI patch: compile ExpoModulesCore in Swift 5 mode ---
               installer.pods_project.targets.each do |target|
                 if target.name == 'ExpoModulesCore'
                   target.build_configurations.each do |config|
-                    config.build_settings['SWIFT_VERSION'] = '6.0'
-                    config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
+                    config.build_settings['SWIFT_VERSION'] = '5.0'
                   end
                 end
               end
             RUBY
-            # Insert patch inside the existing post_install block
             podfile.sub!('react_native_post_install(', patch + \"\\n    react_native_post_install(\")
             File.write('Podfile', podfile)
           "
-          echo '--- Patched Podfile post_install ---'
-          grep -A 10 'CI patch' Podfile || true
+          echo '--- Patched Podfile ---'
+          grep -A 8 'CI patch' Podfile || true
           pod install
-
-      # ── Build with default Xcode (16.4, Swift 6.1) ─────────────────
-      # SWIFT_STRICT_CONCURRENCY=minimal on xcodebuild demotes any
-      # remaining concurrency diagnostics to warnings for all targets.
 
       # ── Discover simulator UDID ─────────────────────────────────────
       - name: Select iOS Simulator
@@ -318,7 +331,7 @@ jobs:
       - name: Run Maestro flows
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
-          maestro test maestro/
+          MAESTRO_WAIT_TIMEOUT=30000 maestro test maestro/
 
       - name: Upload Maestro output
         if: always()
@@ -441,7 +454,7 @@ jobs:
             echo "=== SCREENSHOT ==="
             adb exec-out screencap -p > /tmp/app-screenshot.png 2>/dev/null || true
 
-            $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
+            MAESTRO_WAIT_TIMEOUT=30000 $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
 
       - name: Upload Maestro output
         if: always()

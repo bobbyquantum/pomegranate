@@ -1,10 +1,8 @@
 appId: com.pomegranatedb.todo.demo
 name: Full CRUD flow
 ---
-# ── App loads (30s for slow CI emulators) ─────────────────────────────────
-- assertVisible:
-    text: "PomegranateDB"
-    timeout: 30000
+# ── App loads ──────────────────────────────────────────────────────────────
+- assertVisible: "PomegranateDB"
 - assertVisible: "Reactive offline-first database"
 
 # ── Add a todo ─────────────────────────────────────────────────────────────

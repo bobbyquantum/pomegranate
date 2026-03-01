@@ -1,10 +1,8 @@
 appId: com.pomegranatedb.todo.demo
 name: Add a todo
 ---
-# Wait for the app to load (30s for slow CI emulators)
-- assertVisible:
-    text: "PomegranateDB"
-    timeout: 30000
+# Wait for the app to load
+- assertVisible: "PomegranateDB"
 
 # Type a new todo
 - tapOn:
