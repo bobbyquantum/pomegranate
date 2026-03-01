@@ -24,6 +24,7 @@ import {
   useCollection,
   useCount,
   LokiAdapter,
+  SQLiteAdapter,
 } from 'pomegranate-db';
 import { Todo } from './src/database';
 
@@ -293,6 +294,9 @@ function Header() {
         <Text style={styles.headerTitle}>PomegranateDB</Text>
         <Text style={styles.headerSubtitle}>Reactive offline-first database</Text>
       </View>
+      <View style={styles.adapterBadge}>
+        <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
+      </View>
     </View>
   );
 }
@@ -312,13 +316,50 @@ function MainApp() {
 }
 
 // ─── Database setup (stable reference, outside render) ─────────────────────
+//
+// Adapter is selected by the EXPO_PUBLIC_ADAPTER env var:
+//   loki-idb      LokiAdapter + IndexedDB (web default)
+//   loki-memory   LokiAdapter, no persistence (native default)
+//   expo-sqlite   SQLiteAdapter + expo-sqlite  (iOS / Android native)
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
-const adapter = new LokiAdapter({
-  databaseName: 'pomegranate-demo',
-  persistenceAdapter: new IncrementalIDBAdapter(),
-});
+function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
+  const variant =
+    process.env.EXPO_PUBLIC_ADAPTER ??
+    (Platform.OS === 'web' ? 'loki-idb' : 'loki-memory');
+
+  if (variant === 'expo-sqlite') {
+    // Requires expo-sqlite: npx expo install expo-sqlite
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createExpoSQLiteDriver(),
+      }),
+      name: 'ExpoSQLite',
+    };
+  }
+
+  if (variant === 'loki-idb') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
+    return {
+      adapter: new LokiAdapter({
+        databaseName: 'pomegranate-demo',
+        persistenceAdapter: new IncrementalIDBAdapter(),
+      }),
+      name: 'Loki + IndexedDB',
+    };
+  }
+
+  // loki-memory (native default): pure in-memory, works on all platforms
+  return {
+    adapter: new LokiAdapter({ databaseName: 'pomegranate-demo' }),
+    name: 'Loki (memory)',
+  };
+}
+
+const { adapter, name: ADAPTER_NAME } = createAdapter();
 
 export default function App() {
   return (
@@ -387,6 +428,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.75)',
     marginTop: 2,
+  },
+  adapterBadge: {
+    marginLeft: 8,
+    backgroundColor: 'rgba(0,0,0,0.20)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: 'center',
+  },
+  adapterBadgeText: {
+    color: 'rgba(255,255,255,0.90)',
+    fontSize: 11,
+    fontWeight: '600' as const,
+    letterSpacing: 0.3,
   },
 
   // Input
