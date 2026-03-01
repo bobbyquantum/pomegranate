@@ -3,6 +3,7 @@ name: Full CRUD flow
 ---
 - launchApp:
     appId: com.pomegranatedb.todo.demo
+    clearState: true
 
 # ── App loads ──────────────────────────────────────────────────────────────
 - assertVisible: "PomegranateDB"

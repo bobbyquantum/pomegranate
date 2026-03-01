@@ -3,6 +3,7 @@ name: Toggle a todo
 ---
 - launchApp:
     appId: com.pomegranatedb.todo.demo
+    clearState: true
 
 # Wait for app to fully load
 - assertVisible: "PomegranateDB"
