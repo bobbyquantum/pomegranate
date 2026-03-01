@@ -236,15 +236,18 @@ jobs:
           SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
             | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
           echo "Building workspace=$WORKSPACE scheme=$SCHEME udid=$SIMULATOR_UDID"
+          # Use Debug (not Release) — Release needs code signing; simulators use Debug.
+          # Skip xcpretty so xcodebuild's real exit code is propagated.
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
-            -configuration Release \
+            -configuration Debug \
             -sdk iphonesimulator \
             -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath ios/build \
             CODE_SIGNING_ALLOWED=NO \
-            | xcpretty --color
+            2>&1 | tee /tmp/xcode.log
+          exit ${PIPESTATUS[0]}
         env:
           NSUnbufferedIO: YES
 
@@ -252,10 +255,10 @@ jobs:
       - name: Install app in simulator
         run: |
           # Look ONLY in the final product directory, not intermediate build dirs
-          APP_PATH=$(find ios/build/Build/Products/Release-iphonesimulator \
+          APP_PATH=$(find ios/build/Build/Products/Debug-iphonesimulator \
             -maxdepth 1 -name "*.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: no .app found in Release-iphonesimulator" >&2
+            echo "ERROR: no .app found in Debug-iphonesimulator" >&2
             echo "=== Products directory tree ==" >&2
             find ios/build/Build/Products -maxdepth 3 -type d 2>/dev/null >&2 || true
             echo "=== Full ios/build tree ==" >&2
@@ -347,14 +350,13 @@ jobs:
         working-directory: demos/expo-todo/android
 
       # ── Accept SDK licenses and pre-install system image ───────────
+      # API 29 (Android 10) is the most reliable API level on ubuntu-latest GH runners.
       - name: Accept Android SDK licenses
-        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        run: yes | sdkmanager --licenses || true
         working-directory: .
 
       - name: Install Android system image
-        run: |
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "system-images;android-34;default;x86_64"
+        run: sdkmanager "system-images;android-29;default;x86_64"
         working-directory: .
 
       # ── Install Maestro ─────────────────────────────────────────────
@@ -367,7 +369,7 @@ jobs:
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 29
           arch: x86_64
           target: default
           profile: pixel_6
