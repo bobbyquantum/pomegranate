@@ -8,17 +8,21 @@ name: Delete a todo
 # Wait for app to fully load
 - assertVisible: "PomegranateDB"
 
-# Add a todo to delete (pressKey: Enter submits and dismisses keyboard)
+# Add a todo to delete (tap button triggers handleAdd which dismisses keyboard)
 - tapOn:
     id: "todo-input"
 - inputText: "Delete me"
-- pressKey: Enter
+- tapOn:
+    id: "add-todo-btn"
 - extendedWaitUntil:
     visible:
       id: "todo-item"
     timeout: 15000
 
-# Delete it (keyboard already dismissed by pressKey: Enter)
+# Wait for keyboard dismiss animation (Keyboard.dismiss() called in handleAdd)
+- waitForAnimationToEnd
+
+# Delete it
 - tapOn:
     id: "todo-delete"
 

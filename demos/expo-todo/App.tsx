@@ -12,6 +12,7 @@ import {
   Pressable,
   FlatList,
   ActivityIndicator,
+  Keyboard,
   SafeAreaView,
   Image,
   Platform,
@@ -52,6 +53,7 @@ function AddTodo() {
   const handleAdd = useCallback(async () => {
     const trimmed = title.trim();
     if (!trimmed) return;
+    Keyboard.dismiss();
     await db.write(async () => {
       await db.get(Todo).create({ title: trimmed, createdAt: new Date() });
     });
