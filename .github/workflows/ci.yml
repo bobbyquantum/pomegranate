@@ -195,13 +195,50 @@ jobs:
       - name: Expo prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
 
-      # ── Discover simulator UDID (before xcodebuild so we can pass id:) ──
+      # ── Build with Xcode 16.1 (Swift 6.0) ──────────────────────────
+      # Xcode 16.4 (default, Swift 6.1) rejects @MainActor type attributes
+      # in Swift 5 mode, breaking expo-modules-core. Xcode 16.1 (Swift 6.0)
+      # compiles them correctly. We use a generic destination here because
+      # the 16.1 simulator runtime is not pre-installed on the runner, then
+      # switch back to 16.4 for simulator steps (its runtime IS installed).
+      - name: Select Xcode 16.1
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
+
+      # ── Build for simulator ─────────────────────────────────────────
+      - name: Build iOS app (Simulator)
+        run: |
+          set -o pipefail
+          WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
+            | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
+          echo "Building workspace=$WORKSPACE scheme=$SCHEME"
+          # Use Debug (not Release) — Release needs code signing; simulators use Debug.
+          # Generic destination: builds arm64 simulator binary without needing
+          # a specific simulator runtime installed for this Xcode version.
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee /tmp/xcode.log
+          exit ${PIPESTATUS[0]}
+        env:
+          NSUnbufferedIO: YES
+          FORCE_BUNDLING: "1"
+
+      # ── Switch back to Xcode 16.4 for simulator (its runtime is installed) ──
+      - name: Select Xcode 16.4 (simulator runtime)
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+
+      # ── Discover simulator UDID ─────────────────────────────────────
       - name: Select iOS Simulator
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
-          # Prefer iPhone 16 (Xcode 16.1 ships iOS 18.1 simulators)
           preferred = []
           fallback = []
           for runtime, devs in data['devices'].items():
@@ -224,33 +261,8 @@ jobs:
           fi
           echo "SIMULATOR_UDID=$UDID" >> $GITHUB_ENV
           echo "Selected simulator: $UDID"
-          # Boot the simulator and block until it is fully in Booted state
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID"
-
-      # ── Build for simulator ─────────────────────────────────────────
-      - name: Build iOS app (Simulator)
-        run: |
-          set -o pipefail
-          WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
-          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
-            | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
-          echo "Building workspace=$WORKSPACE scheme=$SCHEME udid=$SIMULATOR_UDID"
-          # Use Debug (not Release) — Release needs code signing; simulators use Debug.
-          # Skip xcpretty so xcodebuild's real exit code is propagated.
-          xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination "id=$SIMULATOR_UDID" \
-            -derivedDataPath ios/build \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee /tmp/xcode.log
-          exit ${PIPESTATUS[0]}
-        env:
-          NSUnbufferedIO: YES
-          FORCE_BUNDLING: "1"
 
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
