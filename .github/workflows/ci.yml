@@ -195,43 +195,62 @@ jobs:
       - name: Expo prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
 
+      # ── Discover simulator UDID (before xcodebuild so we can pass id:) ──
+      - name: Select iOS Simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          # Prefer iPhone 16, fall back to any available iPhone simulator
+          preferred = []
+          fallback = []
+          for runtime, devs in data['devices'].items():
+            if 'iOS' not in runtime:
+              continue
+            for d in devs:
+              if not d['isAvailable']:
+                continue
+              if 'iPhone 16' in d['name']:
+                preferred.append(d['udid'])
+              elif 'iPhone' in d['name']:
+                fallback.append(d['udid'])
+          result = preferred[0] if preferred else (fallback[0] if fallback else '')
+          print(result)
+          ")
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone simulator found:" >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+          echo "SIMULATOR_UDID=$UDID" >> $GITHUB_ENV
+          echo "Selected simulator: $UDID"
+          xcrun simctl boot "$UDID" || true
+
       # ── Build for simulator ─────────────────────────────────────────
       - name: Build iOS app (Simulator)
         run: |
           set -o pipefail
           WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
-          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
-          echo "Building workspace=$WORKSPACE scheme=$SCHEME"
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
+            | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
+          echo "Building workspace=$WORKSPACE scheme=$SCHEME udid=$SIMULATOR_UDID"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath ios/build \
             CODE_SIGNING_ALLOWED=NO \
             | xcpretty --color
         env:
           NSUnbufferedIO: YES
 
-      # ── Boot simulator & install ────────────────────────────────────
-      - name: Boot iOS Simulator
-        run: |
-          DEVICE=$(xcrun simctl list devices available -j | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          for runtime, devs in data['devices'].items():
-            if 'iOS' in runtime:
-              for d in devs:
-                if d['name'] == 'iPhone 16' and d['isAvailable']:
-                  print(d['udid']); sys.exit()
-          ")
-          echo "SIMULATOR_UDID=$DEVICE" >> $GITHUB_ENV
-          xcrun simctl boot "$DEVICE" || true
-
+      # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
         run: |
           APP_PATH=$(find ios/build -name "*.app" -type d | head -1)
+          echo "Installing $APP_PATH into $SIMULATOR_UDID"
           xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
 
       # ── Maestro ─────────────────────────────────────────────────────
