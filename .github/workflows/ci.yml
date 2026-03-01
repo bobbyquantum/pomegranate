@@ -253,6 +253,7 @@ jobs:
             -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath ios/build \
             CODE_SIGNING_ALLOWED=NO \
+            SWIFT_STRICT_CONCURRENCY=minimal \
             2>&1 | tee /tmp/xcode.log
           exit ${PIPESTATUS[0]}
         env:
