@@ -258,11 +258,6 @@ jobs:
         env:
           NSUnbufferedIO: YES
           FORCE_BUNDLING: "1"
-          fi
-          echo "SIMULATOR_UDID=$UDID" >> $GITHUB_ENV
-          echo "Selected simulator: $UDID"
-          xcrun simctl boot "$UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$UDID"
 
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
