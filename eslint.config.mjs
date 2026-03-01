@@ -76,7 +76,38 @@ export default tseslint.config(
       '@stylistic/type-named-tuple-spacing': 'warn',
 
       // ── Unicorn (tuned for our project) ─────────────────────────────
-      'unicorn/prevent-abbreviations': 'off', // db, fn, qb, etc. are fine
+      'unicorn/prevent-abbreviations': ['warn', {
+        // Disable replacements for abbreviations that are idiomatic in this codebase
+        replacements: {
+          db: false,     // database — core concept, db is universal
+          fn: false,     // function — fn/emitFn/TeardownFn/TestFn
+          cb: false,     // callback
+          ctx: false,    // context
+          opts: false,   // options
+          args: false,   // arguments
+          params: false, // parameters
+          val: false,    // value — defaultVal, etc.
+          err: false,    // error (distinct from catch-error-name which governs catch params)
+          doc: false,    // document/record — doc, docs, versionDoc
+          docs: false,   // documents/records
+          str: false,    // string
+          obj: false,    // object
+          arr: false,    // array
+          len: false,    // length
+          prev: false,   // previous
+          msg: false,    // message
+          rel: false,    // relation — rel, authorRel, commentsRel
+          ref: false,    // reference — ModelCollectionRef, ModelDatabaseRef
+          e: false,      // event handler shorthand
+          i: false,      // loop index
+        },
+        allowList: {
+          // Full names that still get flagged despite the above (Props → Properties)
+          DatabaseSuspenseProviderProps: true,
+          UseSearchOptions: true,
+          UseSearchResult: true,
+        },
+      }],
       'unicorn/no-null': 'off', // We use null throughout the DB layer
       'unicorn/no-array-reduce': 'off', // Reduce is fine for SQL builders
       'unicorn/no-array-for-each': 'off', // forEach is idiomatic for subscriptions
