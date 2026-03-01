@@ -3,6 +3,9 @@ node_modules/
 .pnp
 .pnp.js
 
+# Demo lockfile — rebuilt each CI run from a freshly packed tarball
+demos/expo-todo/package-lock.json
+
 # Build output
 dist/
 build/

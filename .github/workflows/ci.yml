@@ -121,9 +121,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            demos/expo-todo/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install root deps
         run: npm ci
@@ -138,7 +136,7 @@ jobs:
         working-directory: .
 
       - name: Install demo deps
-        run: npm install
+        run: npm install --no-package-lock
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -175,9 +173,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            demos/expo-todo/package-lock.json
+          cache-dependency-path: package-lock.json
 
       # ── Build the library ───────────────────────────────────────────
       - name: Install root deps
@@ -194,7 +190,7 @@ jobs:
 
       # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
-        run: npm install
+        run: npm install --no-package-lock
 
       - name: Expo prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
