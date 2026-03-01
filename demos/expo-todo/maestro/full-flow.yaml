@@ -27,8 +27,8 @@ name: Full CRUD flow
 - tapOn:
     id: "seed-btn"
 
-# Wait for seed to complete (todos should appear in the list)
-- sleep: 3
+# Wait for seed to render
+- waitForAnimationToEnd
 
 # ── Clear completed ───────────────────────────────────────────────────────
 - tapOn:
