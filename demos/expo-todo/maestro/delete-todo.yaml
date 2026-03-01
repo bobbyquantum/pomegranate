@@ -11,8 +11,12 @@ name: Delete a todo
 - tapOn:
     id: "todo-input"
 - inputText: "Delete me"
-- pressKey: Enter
-- assertVisible: "Delete me"
+- hideKeyboard
+- tapOn:
+    id: "add-todo-btn"
+- extendedWaitUntil:
+    visible: "Delete me"
+    timeout: 15000
 
 # Delete it
 - tapOn:

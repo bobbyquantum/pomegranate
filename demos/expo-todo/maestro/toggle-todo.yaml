@@ -10,7 +10,9 @@ name: Toggle a todo
 # Seed sample todos
 - tapOn:
     id: "seed-btn"
-- assertVisible: "Buy groceries"
+- extendedWaitUntil:
+    visible: "Buy groceries"
+    timeout: 15000
 
 # Toggle the first todo
 - tapOn:

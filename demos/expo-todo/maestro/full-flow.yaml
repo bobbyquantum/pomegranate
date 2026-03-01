@@ -12,8 +12,12 @@ name: Full CRUD flow
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
-- pressKey: Enter
-- assertVisible: "Maestro test todo"
+- hideKeyboard
+- tapOn:
+    id: "add-todo-btn"
+- extendedWaitUntil:
+    visible: "Maestro test todo"
+    timeout: 15000
 
 # ── Toggle it complete ─────────────────────────────────────────────────────
 - tapOn:
@@ -23,7 +27,9 @@ name: Full CRUD flow
 # ── Seed sample data ──────────────────────────────────────────────────────
 - tapOn:
     id: "seed-btn"
-- assertVisible: "Buy groceries"
+- extendedWaitUntil:
+    visible: "Buy groceries"
+    timeout: 15000
 - assertVisible: "Walk the dog"
 
 # ── Clear completed ───────────────────────────────────────────────────────

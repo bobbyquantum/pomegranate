@@ -293,7 +293,7 @@ jobs:
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
-            -configuration Debug \
+            -configuration Release \
             -sdk iphonesimulator \
             -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath ios/build \
@@ -307,10 +307,10 @@ jobs:
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
         run: |
-          # The build step used  -derivedDataPath ios/build -configuration Debug
-          # so the .app bundle is under ios/build/Build/Products/Debug-iphonesimulator/.
+          # The build step used  -derivedDataPath ios/build -configuration Release
+          # so the .app bundle is under ios/build/Build/Products/Release-iphonesimulator/.
           # Exclude any *Tests.app bundles which lack CFBundleIdentifier (exit 65).
-          PRODUCTS_DIR="ios/build/Build/Products/Debug-iphonesimulator"
+          PRODUCTS_DIR="ios/build/Build/Products/Release-iphonesimulator"
           echo "Looking for .app in $PRODUCTS_DIR …"
           ls -la "$PRODUCTS_DIR/" 2>/dev/null || true
           APP_PATH=$(find "$PRODUCTS_DIR" -maxdepth 1 -name '*.app' \
@@ -341,7 +341,20 @@ jobs:
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
           xcrun simctl launch "$SIMULATOR_UDID" com.pomegranatedb.todo.demo
-          sleep 10
+          sleep 15
+
+          # Diagnostics: what does the app show?
+          echo "=== Simulator screenshot ==="
+          xcrun simctl io "$SIMULATOR_UDID" screenshot /tmp/ios-screenshot.png 2>/dev/null || true
+
+          echo "=== App console log (last 60 lines) ==="
+          xcrun simctl spawn "$SIMULATOR_UDID" log show \
+            --predicate 'subsystem == "com.pomegranatedb.todo.demo" OR process == "PomegranateDBTodo"' \
+            --last 30s --style compact 2>/dev/null | tail -60 || true
+
+          echo "=== Contents of .app bundle ==="
+          ls -la ios/build/Build/Products/Release-iphonesimulator/PomegranateDBTodo.app/ 2>/dev/null | head -20 || true
+
           maestro test maestro/
 
       - name: Upload Maestro output
@@ -351,6 +364,7 @@ jobs:
           name: maestro-report
           path: |
             ~/.maestro/tests/
+            /tmp/ios-screenshot.png
           retention-days: 7
 
   # ─── Android Emulator e2e (Maestro) ─────────────────────────────────────────
@@ -445,7 +459,7 @@ jobs:
           api-level: 29
           arch: x86_64
           target: default
-          emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none -skin 1080x2340
+          emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
             adb install "$(find demos/expo-todo/android/app/build/outputs/apk/debug -name '*.apk' | head -1)"

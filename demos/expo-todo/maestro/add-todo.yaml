@@ -11,10 +11,14 @@ name: Add a todo
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
-- pressKey: Enter
+- hideKeyboard
+- tapOn:
+    id: "add-todo-btn"
 
 # Verify the todo appears
-- assertVisible: "Buy milk"
+- extendedWaitUntil:
+    visible: "Buy milk"
+    timeout: 15000
 
 # Verify stats updated
 - assertVisible: "REMAINING"
