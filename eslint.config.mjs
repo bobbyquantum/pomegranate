@@ -92,32 +92,38 @@ export default tseslint.config(
 
       // ── Unicorn (tuned for our project) ─────────────────────────────
       'unicorn/prevent-abbreviations': ['warn', {
-        // Disable replacements for abbreviations that are idiomatic in this codebase
-        replacements: {
-          db: false,     // database — core concept, db is universal
-          fn: false,     // function — fn/emitFn/TeardownFn/TestFn
-          cb: false,     // callback
-          ctx: false,    // context
-          opts: false,   // options
-          args: false,   // arguments
-          params: false, // parameters
-          val: false,    // value — defaultVal, etc.
-          err: false,    // error (distinct from catch-error-name which governs catch params)
-          doc: false,    // document/record — doc, docs, versionDoc
-          docs: false,   // documents/records
-          str: false,    // string
-          obj: false,    // object
-          arr: false,    // array
-          len: false,    // length
-          prev: false,   // previous
-          msg: false,    // message
-          rel: false,    // relation — rel, authorRel, commentsRel
-          ref: false,    // reference — ModelCollectionRef, ModelDatabaseRef
-          e: false,      // event handler shorthand
-          i: false,      // loop index
-        },
         allowList: {
-          // Full names that still get flagged despite the above (Props → Properties)
+          // ── Standalone short forms ──────────────────────────────────
+          db: true,
+          fn: true,
+          opts: true,
+          args: true,
+          params: true,
+          val: true,
+          err: true,
+          doc: true,
+          docs: true,
+          str: true,
+          obj: true,
+          ref: true,
+          i: true,
+          // ── Compound identifiers that use allowed abbreviations ─────
+          // db
+          LokiDb: true,
+          requireDb: true,
+          // fn
+          TestFn: true,
+          TeardownFn: true,
+          // val
+          defaultVal: true,
+          // doc
+          versionDoc: true,
+          // ref
+          ModelCollectionRef: true,
+          ModelDatabaseRef: true,
+          // args
+          Args: true,
+          // ── Full names flagged by suffix heuristics ─────────────────
           DatabaseSuspenseProviderProps: true,
           UseSearchOptions: true,
           UseSearchResult: true,
