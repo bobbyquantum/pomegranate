@@ -195,16 +195,11 @@ jobs:
       - name: Expo prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
 
-      # ── Build with Xcode 16.1 (Swift 6.0) ──────────────────────────
-      # Xcode 16.4 (default, Swift 6.1) rejects @MainActor type attributes
-      # in Swift 5 mode, breaking expo-modules-core. Xcode 16.1 (Swift 6.0)
-      # compiles them correctly. We download its iOS simulator platform,
-      # then switch back to 16.4 for simulator steps.
-      - name: Select Xcode 16.1
-        run: sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
-
-      - name: Download iOS Simulator platform (Xcode 16.1)
-        run: xcodebuild -downloadPlatform iOS
+      # ── Build with default Xcode (16.4, Swift 6.1) ─────────────────
+      # ExpoModulesCore 55.x uses @MainActor conformance syntax that
+      # requires Swift 6.1 (Xcode 16.4+). The default Xcode on macos-15
+      # provides this. SWIFT_STRICT_CONCURRENCY=minimal demotes any
+      # remaining concurrency diagnostics to warnings.
 
       # ── Discover simulator UDID ─────────────────────────────────────
       - name: Select iOS Simulator
@@ -253,7 +248,6 @@ jobs:
             -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath ios/build \
             CODE_SIGNING_ALLOWED=NO \
-            SWIFT_VERSION=5 \
             SWIFT_STRICT_CONCURRENCY=minimal \
             2>&1 | tee /tmp/xcode.log
           exit ${PIPESTATUS[0]}
@@ -372,10 +366,11 @@ jobs:
         run: npx expo prebuild --platform android --clean
 
       # Force-bundle JS into the debug APK (no Metro server in CI)
-      # Set debuggableVariants to empty so RN bundles JS for debug builds
+      # debuggableVariants=[] forces bundling; extraPackagerArgs overrides
+      # the implicit --dev=false so testIDs remain visible to Maestro
       - name: Force JS bundling for debug
         run: |
-          sed -i '/^react {/a\    debuggableVariants = []' android/app/build.gradle
+          sed -i '/^react {/a\    debuggableVariants = []\n    extraPackagerArgs = ["--dev", "true"]' android/app/build.gradle
 
       # Disable dev support so the app loads the bundled JS instead of trying Metro
       - name: Disable dev mode for CI
