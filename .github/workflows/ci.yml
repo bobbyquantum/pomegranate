@@ -254,35 +254,28 @@ jobs:
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
         run: |
-          # Use xcodebuild -showBuildSettings to get the EXACT product path.
-          # find -maxdepth 1 can still pick up test bundles (e.g. *Tests.app)
-          # that lack CFBundleIdentifier, causing xcrun simctl install to exit 65.
-          WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
-          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
-            | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
-          SETTINGS=$(xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination "id=$SIMULATOR_UDID" \
-            CODE_SIGNING_ALLOWED=NO \
-            -showBuildSettings 2>/dev/null)
-          BUILT_DIR=$(echo "$SETTINGS" | grep 'BUILT_PRODUCTS_DIR' | head -1 \
-            | sed 's/.*= //' | xargs)
-          PRODUCT=$(echo "$SETTINGS" | grep 'FULL_PRODUCT_NAME' | head -1 \
-            | sed 's/.*= //' | xargs)
-          APP_PATH="$BUILT_DIR/$PRODUCT"
-          echo "Resolved: WORKSPACE=$WORKSPACE SCHEME=$SCHEME"
-          echo "APP_PATH=$APP_PATH"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: app not found at $APP_PATH" >&2
-            find ios/build/Build/Products -maxdepth 3 -name '*.app' -type d 2>/dev/null >&2 || true
+          # The build step used  -derivedDataPath ios/build -configuration Debug
+          # so the .app bundle is under ios/build/Build/Products/Debug-iphonesimulator/.
+          # Exclude any *Tests.app bundles which lack CFBundleIdentifier (exit 65).
+          PRODUCTS_DIR="ios/build/Build/Products/Debug-iphonesimulator"
+          echo "Looking for .app in $PRODUCTS_DIR …"
+          ls -la "$PRODUCTS_DIR/" 2>/dev/null || true
+          APP_PATH=$(find "$PRODUCTS_DIR" -maxdepth 1 -name '*.app' \
+            -not -name '*Tests*' -type d | head -1)
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: no .app found under $PRODUCTS_DIR" >&2
+            find ios/build -name '*.app' -type d 2>/dev/null >&2 || true
             exit 1
           fi
+          echo "APP_PATH=$APP_PATH"
           # Verify bundle ID is present (diagnoses exit-65 'Missing bundle ID')
           BID=$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Info.plist" 2>/dev/null || echo '')
           echo "CFBundleIdentifier=$BID"
+          if [ -z "$BID" ]; then
+            echo "ERROR: CFBundleIdentifier is empty — simctl install will fail" >&2
+            plutil -p "$APP_PATH/Info.plist" >&2 || true
+            exit 1
+          fi
           xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
 
       # ── Maestro ─────────────────────────────────────────────────────
@@ -365,15 +358,6 @@ jobs:
       - name: Build Android APK (debug)
         run: ./gradlew assembleDebug --no-daemon --stacktrace
         working-directory: demos/expo-todo/android
-
-      # ── Accept SDK licenses + pre-install emulator & system image ────
-      # 'emulator' is NOT pre-installed on ubuntu-latest; install it explicitly
-      # so the reactivecircus action can find it. API 29 is the most stable level.
-      - name: Install Android emulator packages
-        run: |
-          yes | sdkmanager --licenses 2>/dev/null || true
-          sdkmanager "emulator" "system-images;android-29;default;x86_64"
-        working-directory: .
 
       # ── Install Maestro ─────────────────────────────────────────────
       - name: Install Maestro
