@@ -280,7 +280,7 @@ jobs:
           # The app scheme is the one matching the project name (not Pods schemes)
           SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
             | awk '/Schemes:/,0' | grep -v 'Schemes:' | xargs -n1 \
-            | grep -i 'PomegranateDB' | head -1)
+            | grep -v '^Pods-' | grep -i 'PomegranateDB' | head -1)
           if [ -z "$SCHEME" ]; then
             echo "ERROR: no PomegranateDB scheme found. Available schemes:" >&2
             xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null >&2

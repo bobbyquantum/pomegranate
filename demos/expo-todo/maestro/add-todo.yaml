@@ -3,12 +3,9 @@ name: Add a todo
 ---
 - launchApp:
     appId: com.pomegranatedb.todo.demo
-    clearState: true
 
 # Wait for the app to fully load
-- extendedWaitUntil:
-    visible: "PomegranateDB"
-    timeout: 30000
+- assertVisible: "PomegranateDB"
 
 # Type a new todo
 - tapOn:
@@ -19,11 +16,7 @@ name: Add a todo
     id: "add-todo-btn"
 
 # Verify the todo appears
-- extendedWaitUntil:
-    visible: "Buy milk"
-    timeout: 10000
+- assertVisible: "Buy milk"
 
 # Verify stats updated
-- extendedWaitUntil:
-    visible: "remaining"
-    timeout: 10000
+- assertVisible: "REMAINING"

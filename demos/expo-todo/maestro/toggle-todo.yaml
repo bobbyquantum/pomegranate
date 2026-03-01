@@ -3,19 +3,14 @@ name: Toggle a todo
 ---
 - launchApp:
     appId: com.pomegranatedb.todo.demo
-    clearState: true
 
 # Wait for app to fully load
-- extendedWaitUntil:
-    visible: "PomegranateDB"
-    timeout: 30000
+- assertVisible: "PomegranateDB"
 
 # Seed sample todos
 - tapOn:
     id: "seed-btn"
-- extendedWaitUntil:
-    visible: "Buy groceries"
-    timeout: 10000
+- assertVisible: "Buy groceries"
 
 # Toggle the first todo
 - tapOn:
@@ -23,6 +18,4 @@ name: Toggle a todo
     index: 0
 
 # Verify stats changed (at least 1 done)
-- extendedWaitUntil:
-    visible: "done"
-    timeout: 10000
+- assertVisible: "DONE"
