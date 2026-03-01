@@ -245,7 +245,7 @@ test.describe('PomegranateDB Todo Demo', () => {
 
     // All 10 items must still be present
     for (let i = 1; i <= 10; i++) {
-      await expect(page.getByText(`${prefix}-${i}`)).toBeVisible({ timeout: 8_000 });
+      await expect(page.getByText(`${prefix}-${i}`, { exact: true })).toBeVisible({ timeout: 8_000 });
     }
 
     // Overall count must not have dropped

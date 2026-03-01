@@ -198,9 +198,13 @@ jobs:
       # ── Build for simulator ─────────────────────────────────────────
       - name: Build iOS app (Simulator)
         run: |
+          set -o pipefail
+          WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null | awk '/Schemes:/,0' | grep -v 'Schemes:' | head -1 | xargs)
+          echo "Building workspace=$WORKSPACE scheme=$SCHEME"
           xcodebuild \
-            -workspace ios/PomegranateDBTodo.xcworkspace \
-            -scheme PomegranateDBTodo \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
