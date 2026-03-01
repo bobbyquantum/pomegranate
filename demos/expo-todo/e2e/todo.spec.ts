@@ -228,4 +228,30 @@ test.describe('PomegranateDB Todo Demo', () => {
       statsBefore.remaining + statsBefore.done,
     );
   });
+
+  test('offline persistence stress test — 10 todos survive a reload', async ({ page }) => {
+    // Add 10 uniquely-titled todos
+    const prefix = `stress-${Date.now()}`;
+    for (let i = 1; i <= 10; i++) {
+      await addTodo(page, `${prefix}-${i}`);
+    }
+
+    const statsBefore = await getTodoCount(page);
+    expect(statsBefore.remaining).toBeGreaterThanOrEqual(10);
+
+    // Reload the page and wait for the app to re-initialise
+    await page.reload();
+    await waitForApp(page);
+
+    // All 10 items must still be present
+    for (let i = 1; i <= 10; i++) {
+      await expect(page.getByText(`${prefix}-${i}`)).toBeVisible({ timeout: 8_000 });
+    }
+
+    // Overall count must not have dropped
+    const statsAfter = await getTodoCount(page);
+    expect(statsAfter.remaining + statsAfter.done).toBeGreaterThanOrEqual(
+      statsBefore.remaining + statsBefore.done,
+    );
+  });
 });

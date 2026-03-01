@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ─── PomegranateDB — Download SQLite amalgamation ─────────────────────────
+#
+# Downloads the SQLite 3.47.2 amalgamation into native/shared/sqlite3/.
+# This is required to build the Android JSI library.
+# The amalgamation is gitignored (too large to commit) but listed in
+# package.json `files` so it is included in npm publishes.
+#
+# Usage:
+#   ./scripts/setup-sqlite
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SQLITE_DIR="$PROJECT_ROOT/native/shared/sqlite3"
+SQLITE_VERSION="3470200"
+SQLITE_URL="https://www.sqlite.org/2024/sqlite-amalgamation-${SQLITE_VERSION}.zip"
+
+if [[ -f "$SQLITE_DIR/sqlite3.c" && -f "$SQLITE_DIR/sqlite3.h" ]]; then
+  echo "✓ SQLite amalgamation already present ($(wc -l < "$SQLITE_DIR/sqlite3.c") lines)"
+  exit 0
+fi
+
+echo "⬇  Downloading SQLite ${SQLITE_VERSION} amalgamation…"
+mkdir -p "$SQLITE_DIR"
+
+TMP_ZIP=$(mktemp /tmp/sqlite3-XXXXXX.zip)
+curl -L --progress-bar "$SQLITE_URL" -o "$TMP_ZIP"
+
+unzip -j "$TMP_ZIP" "*/sqlite3.c" "*/sqlite3.h" -d "$SQLITE_DIR"
+rm "$TMP_ZIP"
+
+echo "✓ SQLite amalgamation extracted to native/shared/sqlite3/"
+echo "  sqlite3.c — $(wc -l < "$SQLITE_DIR/sqlite3.c") lines"

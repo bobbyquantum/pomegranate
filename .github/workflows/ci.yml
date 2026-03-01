@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Lint + type-check ──────────────────────────────────────────────────────
+
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Prettier format check
+        run: npm run format:check
+
+  # ─── Pack dry-run ───────────────────────────────────────────────────────────
+  # Smoke-test that the package can be packed cleanly on every PR.
+
+  pack-dry-run:
+    name: npm pack (dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build && npm run build:expo-plugin
+
+      - name: Dry-run pack (shows tarball contents)
+        run: npm pack --dry-run
+
+  # ─── Unit tests ─────────────────────────────────────────────────────────────
+
+  test:
+    name: Jest unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests (with coverage)
+        run: npx jest --coverage --coverageReporters=lcov --coverageReporters=text-summary
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # ─── Build ──────────────────────────────────────────────────────────────────
+
+  build:
+    name: TypeScript build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build library
+        run: npm run build
+
+      - name: Build expo-plugin
+        run: npm run build:expo-plugin
+
+  # ─── Expo web e2e ───────────────────────────────────────────────────────────
+
+  e2e-expo-web:
+    name: Expo web e2e (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: demos/expo-todo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            demos/expo-todo/package-lock.json
+
+      - name: Install root deps
+        run: npm ci
+        working-directory: .
+
+      - name: Build library
+        run: npm run build
+        working-directory: .
+
+      - name: Install demo deps
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: demos/expo-todo/playwright-report/
+          retention-days: 7
+
+  # ─── Podspec lint ────────────────────────────────────────────────────────────
+  #
+  # Uses macOS to validate that the podspec metadata is well-formed.
+  # Full compilation validation requires pods to be installed (see iosTest TODO).
+
+  podspec-lint:
+    name: Podspec lint
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint podspec (metadata only)
+        run: pod spec lint PomegranateDB.podspec --allow-warnings --quick
+        # --quick skips compilation, which needs React-Core pods installed.
+        # Real compilation test happens in the iosTest project (TODO).
