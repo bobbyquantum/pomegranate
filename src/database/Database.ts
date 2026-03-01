@@ -65,7 +65,7 @@ export class Database implements ModelDatabaseRef {
     for (const modelClass of config.models) {
       const schema = modelClass.schema;
       if (!schema) {
-        throw new Error(`Model class is missing static schema property`);
+        throw new Error('Model class is missing static schema property');
       }
       this._modelMap.set(schema.table, modelClass);
       this._collections.set(schema.table, new Collection(this, modelClass));
@@ -190,7 +190,7 @@ export class Database implements ModelDatabaseRef {
     if (!this._isInWriter) {
       throw new Error(
         `${action} must be called inside db.write(). ` +
-          `Wrap your mutation in: await db.write(async () => { ... })`,
+          'Wrap your mutation in: await db.write(async () => { ... })',
       );
     }
   }

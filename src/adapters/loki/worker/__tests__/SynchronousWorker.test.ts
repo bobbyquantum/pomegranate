@@ -165,7 +165,7 @@ describe('SynchronousWorker', () => {
     it('returns an error result for an unknown command', async () => {
       await setUp(worker);
       const result = await postAndCapture(worker, {
-        type: 'find',   // we'll trick it with a bad cast — just test unknown fallback
+        type: 'find', // we'll trick it with a bad cast — just test unknown fallback
         payload: [],
       } as any);
       // 'find' with no args should throw or error (bad payload but known command)
@@ -175,9 +175,7 @@ describe('SynchronousWorker', () => {
         payload: [],
       });
       expect(unknown).toHaveProperty('error');
-      expect((unknown as { error: { message: string } }).error.message).toMatch(
-        /Unknown command/i,
-      );
+      expect((unknown as { error: { message: string } }).error.message).toMatch(/Unknown command/i);
     });
 
     it('returns error and does nothing when a command is called before setUp', async () => {
@@ -209,14 +207,26 @@ describe('SynchronousWorker', () => {
           if (captured === target) resolve();
         };
 
-        worker.postMessage({ id: 10, type: 'insert', payload: ['items', { id: 'a', title: 'A', count: 1, _status: 'created', _changed: '' }] });
-        worker.postMessage({ id: 11, type: 'insert', payload: ['items', { id: 'b', title: 'B', count: 2, _status: 'created', _changed: '' }] });
-        worker.postMessage({ id: 12, type: 'count', payload: [{ table: 'items', conditions: [], orderBy: [], joins: [] }] });
+        worker.postMessage({
+          id: 10,
+          type: 'insert',
+          payload: ['items', { id: 'a', title: 'A', count: 1, _status: 'created', _changed: '' }],
+        });
+        worker.postMessage({
+          id: 11,
+          type: 'insert',
+          payload: ['items', { id: 'b', title: 'B', count: 2, _status: 'created', _changed: '' }],
+        });
+        worker.postMessage({
+          id: 12,
+          type: 'count',
+          payload: [{ table: 'items', conditions: [], orderBy: [], joins: [] }],
+        });
       }).then(() => {
         // All 3 should have succeeded; count should be 2 (both inserts done first)
         expect(responses[0]).toEqual({ value: undefined }); // insert A
         expect(responses[1]).toEqual({ value: undefined }); // insert B
-        expect(responses[2]).toEqual({ value: 2 });         // count = 2
+        expect(responses[2]).toEqual({ value: 2 }); // count = 2
       });
     });
   });

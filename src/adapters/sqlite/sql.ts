@@ -23,9 +23,9 @@ import { sanitizeTableName, sanitizeColumnName } from '../../utils';
 export function createTableSQL(table: TableSchema): string {
   const tableName = sanitizeTableName(table.name);
   const columnDefs = [
-    `"id" TEXT PRIMARY KEY NOT NULL`,
-    `"_status" TEXT NOT NULL DEFAULT 'created'`,
-    `"_changed" TEXT NOT NULL DEFAULT ''`,
+    '"id" TEXT PRIMARY KEY NOT NULL',
+    '"_status" TEXT NOT NULL DEFAULT \'created\'',
+    '"_changed" TEXT NOT NULL DEFAULT \'\'',
     ...table.columns.map((col) => {
       const name = sanitizeColumnName(col.name);
       let sqlType: string;
@@ -117,11 +117,11 @@ export function selectSQL(descriptor: QueryDescriptor): { sql: string; bindings:
 
   // LIMIT / OFFSET
   if (descriptor.limit !== undefined) {
-    sql += ` LIMIT ?`;
+    sql += ' LIMIT ?';
     bindings.push(descriptor.limit);
   }
   if (descriptor.offset !== undefined) {
-    sql += ` OFFSET ?`;
+    sql += ' OFFSET ?';
     bindings.push(descriptor.offset);
   }
 
@@ -190,7 +190,7 @@ export function searchSQL(descriptor: SearchDescriptor): {
     sql += ` ORDER BY ${orderClauses.join(', ')}`;
   }
 
-  sql += ` LIMIT ? OFFSET ?`;
+  sql += ' LIMIT ? OFFSET ?';
   bindings.push(descriptor.limit, descriptor.offset);
 
   return { sql, countSql, bindings, countBindings };

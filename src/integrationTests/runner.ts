@@ -76,9 +76,9 @@ class AssertionError extends Error {
 export const expect = (actual: unknown) => ({
   toBe(expected: unknown) {
     if (actual !== expected)
-      throw new AssertionError(
+      {throw new AssertionError(
         `Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
-      );
+      );}
   },
   toEqual(expected: unknown) {
     const a = JSON.stringify(actual);
@@ -95,15 +95,15 @@ export const expect = (actual: unknown) => ({
     if (actual !== null) throw new AssertionError(`Expected null, got ${JSON.stringify(actual)}`);
   },
   toBeNotNull() {
-    if (actual === null) throw new AssertionError(`Expected non-null`);
+    if (actual === null) throw new AssertionError('Expected non-null');
   },
   toBeGreaterThan(n: number) {
     if (typeof actual !== 'number' || actual <= n)
-      throw new AssertionError(`Expected ${actual} > ${n}`);
+      {throw new AssertionError(`Expected ${actual} > ${n}`);}
   },
   toBeGreaterThanOrEqual(n: number) {
     if (typeof actual !== 'number' || actual < n)
-      throw new AssertionError(`Expected ${actual} >= ${n}`);
+      {throw new AssertionError(`Expected ${actual} >= ${n}`);}
   },
   toHaveLength(n: number) {
     const len = (actual as any)?.length;
@@ -111,7 +111,7 @@ export const expect = (actual: unknown) => ({
   },
   toContain(item: unknown) {
     if (!Array.isArray(actual) || !actual.includes(item))
-      throw new AssertionError(`Expected array to contain ${JSON.stringify(item)}`);
+      {throw new AssertionError(`Expected array to contain ${JSON.stringify(item)}`);}
   },
   toThrow() {
     if (typeof actual !== 'function') throw new AssertionError('Expected a function');

@@ -116,7 +116,6 @@ export class LokiExecutor {
   }
 
   private async _createLokiDb(): Promise<LokiDb> {
-    // @ts-ignore — lokijs has no type declarations (dynamic import)
     const { default: Loki } = await import('lokijs');
 
     const hasPersistence = !!this._config.persistenceAdapter;

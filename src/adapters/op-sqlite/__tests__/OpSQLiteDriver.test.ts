@@ -9,15 +9,17 @@ import { createOpSQLiteDriver } from '../OpSQLiteDriver';
 
 // ─── Mock factory ─────────────────────────────────────────────────────────
 
-function makeMockDb(overrides: Partial<{
-  execute: jest.Mock;
-  executeSync: jest.Mock;
-  executeBatch: jest.Mock;
-  transaction: jest.Mock;
-  close: jest.Mock;
-  getDbPath: jest.Mock;
-  updateHook: jest.Mock;
-}> = {}) {
+function makeMockDb(
+  overrides: Partial<{
+    execute: jest.Mock;
+    executeSync: jest.Mock;
+    executeBatch: jest.Mock;
+    transaction: jest.Mock;
+    close: jest.Mock;
+    getDbPath: jest.Mock;
+    updateHook: jest.Mock;
+  }> = {},
+) {
   return {
     execute: jest.fn().mockResolvedValue({ rows: [], rowsAffected: 0 }),
     executeSync: jest.fn().mockReturnValue({ rows: [], rowsAffected: 0 }),
@@ -110,7 +112,9 @@ describe('createOpSQLiteDriver', () => {
       let capturedHook: ((event: any) => void) | null = null;
       const db = mockOpSQLite(
         makeMockDb({
-          updateHook: jest.fn((cb) => { capturedHook = cb; }),
+          updateHook: jest.fn((cb) => {
+            capturedHook = cb;
+          }),
         }),
       );
       const onTableChanged = jest.fn();
@@ -124,7 +128,13 @@ describe('createOpSQLiteDriver', () => {
     });
 
     it('throws a helpful error when op-sqlite is not installed', async () => {
-      jest.mock('@op-engineering/op-sqlite', () => { throw new Error('Cannot find module'); }, { virtual: true });
+      jest.mock(
+        '@op-engineering/op-sqlite',
+        () => {
+          throw new Error('Cannot find module');
+        },
+        { virtual: true },
+      );
       const driver = createOpSQLiteDriver();
 
       await expect(driver.open('db')).rejects.toThrow(/@op-engineering\/op-sqlite/i);
@@ -157,9 +167,7 @@ describe('createOpSQLiteDriver', () => {
   describe('query()', () => {
     it('returns the rows array from the result', async () => {
       const rows = [{ id: 'x', name: 'test' }];
-      mockOpSQLite(
-        makeMockDb({ execute: jest.fn().mockResolvedValue({ rows, rowsAffected: 0 }) }),
-      );
+      mockOpSQLite(makeMockDb({ execute: jest.fn().mockResolvedValue({ rows, rowsAffected: 0 }) }));
       const driver = createOpSQLiteDriver();
       await driver.open('db');
 
@@ -202,7 +210,9 @@ describe('createOpSQLiteDriver', () => {
       await driver.open('db');
 
       await expect(
-        driver.executeInTransaction(async () => { throw boom; }),
+        driver.executeInTransaction(async () => {
+          throw boom;
+        }),
       ).rejects.toBe(boom);
     });
 
@@ -210,7 +220,9 @@ describe('createOpSQLiteDriver', () => {
       mockOpSQLite();
       const driver = createOpSQLiteDriver();
 
-      await expect(driver.executeInTransaction(async () => {})).rejects.toThrow(/not open|open\(\)/i);
+      await expect(driver.executeInTransaction(async () => {})).rejects.toThrow(
+        /not open|open\(\)/i,
+      );
     });
   });
 

@@ -33,9 +33,6 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
-      - name: Prettier format check
-        run: npm run format:check
-
   # ─── Pack dry-run ───────────────────────────────────────────────────────────
   # Smoke-test that the package can be packed cleanly on every PR.
 

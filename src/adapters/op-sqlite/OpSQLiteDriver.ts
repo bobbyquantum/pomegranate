@@ -102,7 +102,7 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
     if (!opSQLite) {
       try {
         // @ts-expect-error — @op-engineering/op-sqlite is an optional peer dependency
-        opSQLite = await import('@op-engineering/op-sqlite') as unknown as OpSQLiteModule;
+        opSQLite = (await import('@op-engineering/op-sqlite')) as unknown as OpSQLiteModule;
       } catch {
         throw new Error(
           '@op-engineering/op-sqlite is not installed. Install it with:\n' +

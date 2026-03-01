@@ -112,9 +112,7 @@ describe('LokiDispatcher', () => {
       // Simulate stray response with no pending calls
       dispatcher['_onMessage']({ data: { id: 1, result: { value: 'stray' } } });
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('no pending call'),
-      );
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('no pending call'));
       consoleSpy.mockRestore();
     });
   });

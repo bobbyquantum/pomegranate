@@ -10,12 +10,14 @@ import { createNativeSQLiteDriver } from '../NativeSQLiteDriver';
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 /** Build a fully-featured mock JSI adapter. */
-function makeMockAdapter(overrides: Partial<{
-  execute: jest.Mock;
-  query: jest.Mock;
-  executeBatch: jest.Mock;
-  close: jest.Mock;
-}> = {}) {
+function makeMockAdapter(
+  overrides: Partial<{
+    execute: jest.Mock;
+    query: jest.Mock;
+    executeBatch: jest.Mock;
+    close: jest.Mock;
+  }> = {},
+) {
   return {
     execute: jest.fn(),
     query: jest.fn().mockReturnValue([]),
@@ -77,9 +79,7 @@ describe('createNativeSQLiteDriver', () => {
 
     it('throws when autoInstall is false and global is missing', async () => {
       const driver = createNativeSQLiteDriver({ autoInstall: false });
-      await expect(driver.open('testdb')).rejects.toThrow(
-        /not installed|PomegranateJSIBridge/i,
-      );
+      await expect(driver.open('testdb')).rejects.toThrow(/not installed|PomegranateJSIBridge/i);
     });
 
     it('throws when PomegranateJSIBridge module is absent', async () => {
@@ -132,7 +132,10 @@ describe('createNativeSQLiteDriver', () => {
 
   describe('query()', () => {
     it('returns rows from the JSI adapter', async () => {
-      const rows = [{ id: '1', title: 'hello' }, { id: '2', title: 'world' }];
+      const rows = [
+        { id: '1', title: 'hello' },
+        { id: '2', title: 'world' },
+      ];
       const mock = installMockGlobal(makeMockAdapter({ query: jest.fn().mockReturnValue(rows) }));
       const driver = createNativeSQLiteDriver({ autoInstall: false });
       await driver.open('db');
@@ -181,9 +184,7 @@ describe('createNativeSQLiteDriver', () => {
 
     it('rolls back on error and re-throws', async () => {
       const executeCalls: string[] = [];
-      installMockGlobal(
-        makeMockAdapter({ execute: jest.fn((sql) => executeCalls.push(sql)) }),
-      );
+      installMockGlobal(makeMockAdapter({ execute: jest.fn((sql) => executeCalls.push(sql)) }));
       const driver = createNativeSQLiteDriver({ autoInstall: false });
       await driver.open('db');
 
@@ -200,7 +201,9 @@ describe('createNativeSQLiteDriver', () => {
 
     it('throws when called before open()', async () => {
       const driver = createNativeSQLiteDriver({ autoInstall: false });
-      await expect(driver.executeInTransaction(async () => {})).rejects.toThrow(/not open|open\(\)/i);
+      await expect(driver.executeInTransaction(async () => {})).rejects.toThrow(
+        /not open|open\(\)/i,
+      );
     });
   });
 

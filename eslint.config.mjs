@@ -1,7 +1,6 @@
 // @ts-check
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
-import eslintConfigPrettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
 import stylistic from '@stylistic/eslint-plugin';
 import unicorn from 'eslint-plugin-unicorn';
@@ -66,14 +65,30 @@ export default tseslint.config(
       '@typescript-eslint/no-this-alias': 'off', // Used in observable patterns
       '@typescript-eslint/ban-ts-comment': 'off',
 
-      // ── Stylistic ──────────────────────────────────────────────────
-      '@stylistic/type-annotation-spacing': 'warn',
-      '@stylistic/member-delimiter-style': ['warn', {
+      // ── Stylistic (formatting — replaces Prettier) ────────────────
+      '@stylistic/semi': ['error', 'always'],
+      '@stylistic/quotes': ['error', 'single', { avoidEscape: true }],
+      '@stylistic/comma-dangle': ['error', 'always-multiline'],
+      '@stylistic/arrow-parens': ['error', 'always'],
+      '@stylistic/object-curly-spacing': ['error', 'always'],
+      '@stylistic/no-trailing-spaces': 'error',
+      '@stylistic/eol-last': ['error', 'always'],
+      '@stylistic/max-len': ['warn', {
+        code: 100,
+        ignoreStrings: true,
+        ignoreTemplateLiterals: true,
+        ignoreUrls: true,
+        ignoreComments: true,
+        ignoreRegExpLiterals: true,
+      }],
+      // ── Stylistic (TypeScript-specific) ───────────────────────────
+      '@stylistic/type-annotation-spacing': 'error',
+      '@stylistic/member-delimiter-style': ['error', {
         multiline: { delimiter: 'semi', requireLast: true },
         singleline: { delimiter: 'semi', requireLast: false },
       }],
-      '@stylistic/type-generic-spacing': 'warn',
-      '@stylistic/type-named-tuple-spacing': 'warn',
+      '@stylistic/type-generic-spacing': 'error',
+      '@stylistic/type-named-tuple-spacing': 'error',
 
       // ── Unicorn (tuned for our project) ─────────────────────────────
       'unicorn/prevent-abbreviations': ['warn', {
@@ -183,7 +198,4 @@ export default tseslint.config(
       'unicorn/prefer-type-error': 'off',
     },
   },
-
-  // ─── Prettier compatibility (must be last) ──────────────────────────
-  eslintConfigPrettier,
 );

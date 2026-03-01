@@ -87,7 +87,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
     // Check existing version
     const rows = await this._driver.query(
-      `SELECT "value" FROM "__pomegranate_metadata" WHERE "key" = 'schema_version'`,
+      'SELECT "value" FROM "__pomegranate_metadata" WHERE "key" = \'schema_version\'',
     );
 
     const existingVersion = rows.length > 0 ? Number.parseInt(rows[0].value as string, 10) : 0;
@@ -107,7 +107,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
       // Store version
       await this._driver.execute(
-        `INSERT OR REPLACE INTO "__pomegranate_metadata" ("key", "value") VALUES ('schema_version', ?)`,
+        'INSERT OR REPLACE INTO "__pomegranate_metadata" ("key", "value") VALUES (\'schema_version\', ?)',
         [String(schema.version)],
       );
     }
@@ -289,7 +289,7 @@ export class SQLiteAdapter implements StorageAdapter {
   async getSchemaVersion(): Promise<number> {
     try {
       const rows = await this._driver.query(
-        `SELECT "value" FROM "__pomegranate_metadata" WHERE "key" = 'schema_version'`,
+        'SELECT "value" FROM "__pomegranate_metadata" WHERE "key" = \'schema_version\'',
       );
       return rows.length > 0 ? Number.parseInt(rows[0].value as string, 10) : 0;
     } catch {
@@ -333,7 +333,7 @@ export class SQLiteAdapter implements StorageAdapter {
         }
 
         await this._driver.execute(
-          `INSERT OR REPLACE INTO "__pomegranate_metadata" ("key", "value") VALUES ('schema_version', ?)`,
+          'INSERT OR REPLACE INTO "__pomegranate_metadata" ("key", "value") VALUES (\'schema_version\', ?)',
           [String(migration.toVersion)],
         );
       }
@@ -345,7 +345,7 @@ export class SQLiteAdapter implements StorageAdapter {
   async reset(): Promise<void> {
     // Get all user tables
     const tables = await this._driver.query(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+      'SELECT name FROM sqlite_master WHERE type=\'table\' AND name NOT LIKE \'sqlite_%\'',
     );
 
     await this._driver.executeInTransaction(async () => {

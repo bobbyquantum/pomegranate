@@ -20,7 +20,7 @@ import type { StorageAdapter, AdapterConfig, Migration } from '../types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../../query/types';
 import type { DatabaseSchema, RawRecord } from '../../schema/types';
 import type { WorkerCommandType, WorkerInterface } from './worker/types';
-import { LokiExecutor, type LokiExecutorConfig } from './worker/LokiExecutor';
+import { LokiExecutor  } from './worker/LokiExecutor';
 import { LokiDispatcher } from './worker/LokiDispatcher';
 
 // ─── LokiJS Adapter Config ──────────────────────────────────────────────
@@ -64,7 +64,7 @@ export interface LokiAdapterConfig extends AdapterConfig {
 }
 
 // Re-export for consumers
-export type { LokiExecutorConfig };
+
 
 // ─── LokiJS Adapter ──────────────────────────────────────────────────────
 
@@ -218,3 +218,5 @@ export class LokiAdapter implements StorageAdapter {
     this._initialized = false;
   }
 }
+
+export { type LokiExecutorConfig } from './worker/LokiExecutor';

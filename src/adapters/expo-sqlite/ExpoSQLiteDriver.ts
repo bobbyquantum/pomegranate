@@ -62,7 +62,7 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
     if (!expoSQLite) {
       try {
         // @ts-expect-error — expo-sqlite is an optional peer dependency
-        expoSQLite = await import('expo-sqlite') as ExpoSQLiteModule;
+        expoSQLite = (await import('expo-sqlite')) as ExpoSQLiteModule;
       } catch {
         throw new Error(
           'expo-sqlite is not installed. Install it with: npx expo install expo-sqlite',
