@@ -18,10 +18,13 @@ name: Delete a todo
       id: "todo-item"
     timeout: 15000
 
+# Ensure keyboard is dismissed and UI has settled before tapping delete
+- tapOn: "PomegranateDB"
+- waitForAnimationToEnd
+
 # Delete it
 - tapOn:
     id: "todo-delete"
-    index: 0
 
 # Verify it's gone (wait for UI update)
 - extendedWaitUntil:
