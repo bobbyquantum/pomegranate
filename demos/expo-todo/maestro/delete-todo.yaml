@@ -11,9 +11,7 @@ name: Delete a todo
 - tapOn:
     id: "todo-input"
 - inputText: "Delete me"
-- hideKeyboard
-- tapOn:
-    id: "add-todo-btn"
+- pressKey: Enter
 - assertVisible: "Delete me"
 
 # Delete it

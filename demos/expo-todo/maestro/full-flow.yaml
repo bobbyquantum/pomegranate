@@ -12,9 +12,7 @@ name: Full CRUD flow
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
-- hideKeyboard
-- tapOn:
-    id: "add-todo-btn"
+- pressKey: Enter
 - assertVisible: "Maestro test todo"
 
 # ── Toggle it complete ─────────────────────────────────────────────────────

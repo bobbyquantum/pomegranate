@@ -11,9 +11,7 @@ name: Add a todo
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
-- hideKeyboard
-- tapOn:
-    id: "add-todo-btn"
+- pressKey: Enter
 
 # Verify the todo appears
 - assertVisible: "Buy milk"

@@ -241,6 +241,16 @@ jobs:
           grep -A 8 'CI patch' Podfile || true
           pod install
 
+      # Expo prebuild sets export SKIP_BUNDLING=1 for Debug builds in
+      # the "Bundle React Native code" script phase, before invoking the
+      # actual bundle script. The script also sources .xcode.env.updates
+      # specifically to allow this to be overridden.
+      - name: Enable JS bundling for CI
+        run: |
+          echo 'unset SKIP_BUNDLING'    >  ios/.xcode.env.updates
+          echo 'export FORCE_BUNDLING=1' >> ios/.xcode.env.updates
+          cat ios/.xcode.env.updates
+
       # ── Discover simulator UDID ─────────────────────────────────────
       - name: Select iOS Simulator
         run: |
@@ -293,7 +303,6 @@ jobs:
           exit ${PIPESTATUS[0]}
         env:
           NSUnbufferedIO: YES
-          FORCE_BUNDLING: "1"
 
       # ── Install into the already-booted simulator ───────────────────
       - name: Install app in simulator
@@ -436,7 +445,7 @@ jobs:
           api-level: 29
           arch: x86_64
           target: default
-          emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none -skin 1080x2340
           disable-animations: true
           script: |
             adb install "$(find demos/expo-todo/android/app/build/outputs/apk/debug -name '*.apk' | head -1)"
