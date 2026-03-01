@@ -158,7 +158,7 @@ jobs:
 
   e2e-ios:
     name: iOS e2e (Maestro)
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: demos/expo-todo
@@ -175,11 +175,12 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # ── Use Xcode 15.4 (Swift 5.10) to avoid Swift 6 concurrency errors ──
-      # Xcode 16.x Swift 6 compiler breaks expo-modules-core even in Swift 5
-      # language mode. Xcode 15.4 (Swift 5.10) avoids the issue entirely.
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      # ── Use Xcode 16.1 (Swift 6.0) to avoid Swift 6.1 concurrency errors ──
+      # Xcode 16.4 (default, Swift 6.1) rejects @MainActor type attributes in
+      # Swift 5 mode. Xcode 16.1 (Swift 6.0) handles them correctly.
+      # React Native 0.83 requires Xcode >= 16.1.
+      - name: Select Xcode 16.1
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
 
       # ── Build the library ───────────────────────────────────────────
       - name: Install root deps
@@ -207,7 +208,7 @@ jobs:
           UDID=$(xcrun simctl list devices available -j | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
-          # Prefer iPhone 15 (Xcode 15.4 ships iOS 17.x simulators)
+          # Prefer iPhone 16 (Xcode 16.1 ships iOS 18.1 simulators)
           preferred = []
           fallback = []
           for runtime, devs in data['devices'].items():
@@ -216,7 +217,7 @@ jobs:
             for d in devs:
               if not d['isAvailable']:
                 continue
-              if 'iPhone 15' in d['name']:
+              if 'iPhone 16' in d['name']:
                 preferred.append(d['udid'])
               elif 'iPhone' in d['name']:
                 fallback.append(d['udid'])
@@ -369,9 +370,10 @@ jobs:
         run: npx expo prebuild --platform android --clean
 
       # Force-bundle JS into the debug APK (no Metro server in CI)
-      - name: Enable bundleInDebug
+      # Set debuggableVariants to empty so RN bundles JS for debug builds
+      - name: Force JS bundling for debug
         run: |
-          sed -i 's/^react {/react {\n    bundleInDebug = true/' android/app/build.gradle
+          sed -i '/^react {/a\    debuggableVariants = []' android/app/build.gradle
 
       - name: Build Android APK (debug)
         run: ./gradlew assembleDebug --no-daemon --stacktrace
