@@ -19,6 +19,8 @@
 
 @implementation PomegranateJSI
 
+@synthesize bridge = _bridge;
+
 // ─── RCTBridgeModule boilerplate ──────────────────────────────────────────────
 
 RCT_EXPORT_MODULE(PomegranateJSIBridge)
@@ -36,7 +38,7 @@ RCT_EXPORT_MODULE(PomegranateJSIBridge)
  */
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
     @try {
-        RCTCxxBridge *cxxBridge = (RCTCxxBridge *)self.bridge;
+        RCTCxxBridge *cxxBridge = (RCTCxxBridge *)_bridge;
         if (!cxxBridge || !cxxBridge.runtime) {
             RCTLogError(@"[PomegranateDB] Bridge or runtime is nil — cannot install JSI binding. "
                         @"Are you using the JSC / Hermes runtime?");
