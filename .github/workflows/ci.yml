@@ -33,29 +33,6 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
-  # ─── Pack dry-run ───────────────────────────────────────────────────────────
-  # Smoke-test that the package can be packed cleanly on every PR.
-
-  pack-dry-run:
-    name: npm pack (dry run)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build && npm run build:expo-plugin
-
-      - name: Dry-run pack (shows tarball contents)
-        run: npm pack --dry-run
-
   # ─── Unit tests ─────────────────────────────────────────────────────────────
 
   test:
@@ -83,10 +60,13 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # ─── Build ──────────────────────────────────────────────────────────────────
+  # ─── Pack library (shared by all e2e jobs) ─────────────────────────────────
+  #
+  # Builds the library, downloads the SQLite amalgamation, packs the tarball,
+  # and uploads it as an artifact so every e2e job can skip the build step.
 
-  build:
-    name: TypeScript build
+  pack-library:
+    name: Pack library
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,10 +85,26 @@ jobs:
       - name: Build expo-plugin
         run: npm run build:expo-plugin
 
+      - name: Download SQLite amalgamation
+        run: |
+          chmod +x scripts/setup-sqlite
+          ./scripts/setup-sqlite
+
+      - name: Pack library tarball
+        run: npm pack
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: pomegranate-tarball
+          path: pomegranate-db-0.1.0.tgz
+          retention-days: 1
+
   # ─── Expo web e2e ───────────────────────────────────────────────────────────
 
   e2e-expo-web:
     name: "Web e2e · ${{ matrix.adapter }}"
+    needs: [pack-library]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -132,17 +128,10 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Install root deps
-        run: npm ci
-        working-directory: .
-
-      - name: Build library
-        run: npm run build
-        working-directory: .
-
-      - name: Pack library tarball
-        run: npm pack
-        working-directory: .
+      - name: Download library tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: pomegranate-tarball
 
       - name: Install demo deps
         run: npm install --no-package-lock
@@ -167,6 +156,7 @@ jobs:
 
   e2e-ios:
     name: "iOS e2e · ${{ matrix.adapter }}"
+    needs: [pack-library]
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -188,26 +178,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # ── Build the library ───────────────────────────────────────────
-      - name: Install root deps
-        run: npm ci
-        working-directory: .
-
-      - name: Build library
-        run: npm run build
-        working-directory: .
-
-      # native-sqlite (JSI) needs the SQLite amalgamation header in the tarball.
-      # Android compiles it too; iOS links system SQLite but still needs sqlite3.h.
-      - name: Download SQLite amalgamation
-        run: |
-          chmod +x scripts/setup-sqlite
-          ./scripts/setup-sqlite
-        working-directory: .
-
-      - name: Pack library tarball
-        run: npm pack
-        working-directory: .
+      # ── Download pre-built library tarball ──────────────────────────
+      - name: Download library tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: pomegranate-tarball
 
       # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
@@ -395,6 +370,7 @@ jobs:
 
   e2e-android:
     name: "Android e2e · ${{ matrix.adapter }}"
+    needs: [pack-library]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -429,24 +405,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # ── Build the library ───────────────────────────────────────────
-      - name: Install root deps
-        run: npm ci
-        working-directory: .
-
-      - name: Build library
-        run: npm run build
-        working-directory: .
-
-      - name: Download SQLite amalgamation
-        run: |
-          chmod +x scripts/setup-sqlite
-          ./scripts/setup-sqlite
-        working-directory: .
-
-      - name: Pack library tarball
-        run: npm pack
-        working-directory: .
+      # ── Download pre-built library tarball ──────────────────────────
+      - name: Download library tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: pomegranate-tarball
 
       # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
@@ -523,6 +486,7 @@ jobs:
 
   e2e-bare-ios:
     name: "Bare RN iOS · ${{ matrix.adapter }}"
+    needs: [pack-library]
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -544,24 +508,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # ── Build the library ───────────────────────────────────────────
-      - name: Install root deps
-        run: npm ci
-        working-directory: .
-
-      - name: Build library
-        run: npm run build
-        working-directory: .
-
-      - name: Download SQLite amalgamation
-        run: |
-          chmod +x scripts/setup-sqlite
-          ./scripts/setup-sqlite
-        working-directory: .
-
-      - name: Pack library tarball
-        run: npm pack
-        working-directory: .
+      # ── Download pre-built library tarball ──────────────────────────
+      - name: Download library tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: pomegranate-tarball
 
       # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
@@ -680,6 +631,7 @@ jobs:
 
   e2e-bare-android:
     name: "Bare RN Android · ${{ matrix.adapter }}"
+    needs: [pack-library]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -714,24 +666,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # ── Build the library ───────────────────────────────────────────
-      - name: Install root deps
-        run: npm ci
-        working-directory: .
-
-      - name: Build library
-        run: npm run build
-        working-directory: .
-
-      - name: Download SQLite amalgamation
-        run: |
-          chmod +x scripts/setup-sqlite
-          ./scripts/setup-sqlite
-        working-directory: .
-
-      - name: Pack library tarball
-        run: npm pack
-        working-directory: .
+      # ── Download pre-built library tarball ──────────────────────────
+      - name: Download library tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: pomegranate-tarball
 
       # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
