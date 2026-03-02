@@ -113,10 +113,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [loki-idb]
-        # NOTE: expo-sqlite web support requires Cross-Origin Isolation headers
-        # (COOP/COEP) for OPFS. The Expo dev server does not set these by default,
-        # so expo-sqlite is tested on native only for now.
+        adapter: [loki-idb, expo-sqlite]
+        # expo-sqlite on web uses wa-sqlite (WASM/OPFS) and requires
+        # Cross-Origin Isolation headers — provided via metro.config.js
+        # enhanceMiddleware (COOP + COEP).
     defaults:
       run:
         working-directory: demos/expo-todo
@@ -171,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [loki-memory, expo-sqlite]
+        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo
@@ -195,6 +195,14 @@ jobs:
 
       - name: Build library
         run: npm run build
+        working-directory: .
+
+      # native-sqlite (JSI) needs the SQLite amalgamation header in the tarball.
+      # Android compiles it too; iOS links system SQLite but still needs sqlite3.h.
+      - name: Download SQLite amalgamation
+        run: |
+          chmod +x scripts/setup-sqlite
+          ./scripts/setup-sqlite
         working-directory: .
 
       - name: Pack library tarball
@@ -391,7 +399,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [loki-memory, expo-sqlite]
+        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo

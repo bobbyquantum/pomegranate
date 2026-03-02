@@ -326,9 +326,11 @@ function MainApp() {
 // ─── Database setup (stable reference, outside render) ─────────────────────
 //
 // Adapter is selected by the EXPO_PUBLIC_ADAPTER env var:
-//   loki-idb      LokiAdapter + IndexedDB (web default)
-//   loki-memory   LokiAdapter, no persistence (native default)
-//   expo-sqlite   SQLiteAdapter + expo-sqlite  (iOS / Android / web)
+//   loki-idb        LokiAdapter + IndexedDB (web default)
+//   loki-memory     LokiAdapter, no persistence (native default)
+//   expo-sqlite     SQLiteAdapter + expo-sqlite  (iOS / Android / web)
+//   op-sqlite       SQLiteAdapter + op-sqlite    (iOS / Android only)
+//   native-sqlite   SQLiteAdapter + JSI bridge   (iOS / Android only)
 
 function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
   const variant =
@@ -345,6 +347,32 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
         driver: createExpoSQLiteDriver(),
       }),
       name: 'ExpoSQLite',
+    };
+  }
+
+  if (variant === 'op-sqlite') {
+    // Requires @op-engineering/op-sqlite (native only, no web)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createOpSQLiteDriver(),
+      }),
+      name: 'OpSQLite',
+    };
+  }
+
+  if (variant === 'native-sqlite') {
+    // PomegranateDB's own JSI C++ bridge (native only, no web)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createNativeSQLiteDriver } = require('pomegranate-db/native-sqlite');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createNativeSQLiteDriver(),
+      }),
+      name: 'NativeSQLite (JSI)',
     };
   }
 
