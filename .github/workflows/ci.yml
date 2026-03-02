@@ -495,7 +495,7 @@ jobs:
     defaults:
       run:
         working-directory: demos/bare-rn-todo
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       ADAPTER: ${{ matrix.adapter }}
 

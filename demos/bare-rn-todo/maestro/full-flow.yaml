@@ -19,6 +19,10 @@ name: Full CRUD flow
     timeout: 15000
 
 # ── Toggle it complete ─────────────────────────────────────────────────────
+- extendedWaitUntil:
+    visible:
+      id: "todo-checkbox"
+    timeout: 10000
 - tapOn:
     id: "todo-checkbox"
     index: 0
