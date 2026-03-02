@@ -1,0 +1,26 @@
+appId: com.barerntodo
+name: Toggle a todo
+---
+- stopApp
+- launchApp:
+    appId: com.barerntodo
+
+# Wait for app to fully load
+- assertVisible: "PomegranateDB"
+
+# Seed sample todos
+- tapOn:
+    id: "seed-btn"
+- extendedWaitUntil:
+    visible:
+      id: "todo-item"
+    timeout: 15000
+
+# Toggle the first todo
+- tapOn:
+    id: "todo-checkbox"
+    index: 0
+
+# Verify stats element is visible (shows updated counts)
+- assertVisible:
+    id: "stats-text"

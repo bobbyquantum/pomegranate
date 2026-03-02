@@ -1,0 +1,25 @@
+appId: com.barerntodo
+name: Add a todo
+---
+- stopApp
+- launchApp:
+    appId: com.barerntodo
+
+# Wait for the app to fully load
+- assertVisible: "PomegranateDB"
+
+# Type a new todo and submit via Enter (dismisses keyboard reliably on both platforms)
+- tapOn:
+    id: "todo-input"
+- inputText: "Buy milk"
+- pressKey: Enter
+
+# Verify a todo item appeared
+- extendedWaitUntil:
+    visible:
+      id: "todo-item"
+    timeout: 15000
+
+# Verify stats are visible
+- assertVisible:
+    id: "stats-text"

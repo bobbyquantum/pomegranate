@@ -1,0 +1,40 @@
+appId: com.barerntodo
+name: Full CRUD flow
+---
+- stopApp
+- launchApp:
+    appId: com.barerntodo
+
+# ── App loads ──────────────────────────────────────────────────────────────
+- assertVisible: "PomegranateDB"
+- assertVisible: "Bare React Native"
+
+# ── Add a todo (pressKey: Enter submits and dismisses keyboard) ───────────
+- tapOn:
+    id: "todo-input"
+- inputText: "Maestro test todo"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      id: "todo-item"
+    timeout: 15000
+
+# ── Toggle it complete ─────────────────────────────────────────────────────
+- tapOn:
+    id: "todo-checkbox"
+    index: 0
+
+# ── Seed sample data ──────────────────────────────────────────────────────
+- tapOn:
+    id: "seed-btn"
+
+# Wait for seed to render
+- waitForAnimationToEnd
+
+# ── Clear completed ───────────────────────────────────────────────────────
+- tapOn:
+    id: "clear-completed-btn"
+
+# ── Verify stats are visible ──────────────────────────────────────────────
+- assertVisible:
+    id: "stats-text"
