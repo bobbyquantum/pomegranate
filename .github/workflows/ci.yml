@@ -113,7 +113,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [loki-idb, expo-sqlite]
+        adapter: [loki-idb]
+        # NOTE: expo-sqlite web support requires Cross-Origin Isolation headers
+        # (COOP/COEP) for OPFS. The Expo dev server does not set these by default,
+        # so expo-sqlite is tested on native only for now.
     defaults:
       run:
         working-directory: demos/expo-todo
