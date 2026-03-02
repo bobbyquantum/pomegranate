@@ -8,6 +8,11 @@ const config = getDefaultConfig(__dirname);
 // COOP: same-origin  +  COEP: credentialless  enables SharedArrayBuffer
 // without requiring every sub-resource to carry Cross-Origin-Resource-Policy,
 // which Metro's dev-server bundles don't have.
+//
+// NOTE: expo-sqlite on web requires a bundler that can handle Web Workers and
+// .wasm imports (e.g., webpack).  Metro currently cannot resolve .wasm imports
+// inside expo-sqlite's wa-sqlite worker, so the web expo-sqlite CI test is
+// not yet supported.  See: https://github.com/nicolo-ribaudo/tc39-proposal-wasm-esm-integration
 config.server = {
   ...config.server,
   enhanceMiddleware: (middleware) => {
