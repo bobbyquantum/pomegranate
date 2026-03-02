@@ -86,8 +86,12 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
         name.endsWith('.db') ? name : `${name}.db`,
         config?.openOptions,
       );
-      // Enable WAL mode for better performance
-      await db.execAsync('PRAGMA journal_mode = WAL');
+      // Enable WAL mode for better performance (may not be supported on web/wa-sqlite)
+      try {
+        await db.execAsync('PRAGMA journal_mode = WAL');
+      } catch {
+        // WAL not supported on this platform (e.g. web wa-sqlite), continue without it
+      }
     },
 
     async execute(sql: string, bindings?: unknown[]): Promise<void> {
@@ -109,12 +113,36 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
 
     async executeInTransaction(fn: () => Promise<void>): Promise<void> {
       const database = requireDb();
-      await database.withExclusiveTransactionAsync(async (_txn) => {
-        // expo-sqlite's exclusive transaction scopes all queries
-        // on this database connection to the transaction, so we
-        // can just call fn() which uses the same `db` reference.
+      // expo-sqlite's withExclusiveTransactionAsync is not supported on web.
+      // Fall back to manual BEGIN/COMMIT/ROLLBACK for web compatibility.
+      if (typeof database.withExclusiveTransactionAsync === 'function') {
+        try {
+          await database.withExclusiveTransactionAsync(async (_txn) => {
+            // expo-sqlite's exclusive transaction scopes all queries
+            // on this database connection to the transaction, so we
+            // can just call fn() which uses the same `db` reference.
+            await fn();
+          });
+          return;
+        } catch (e: unknown) {
+          // On web, withExclusiveTransactionAsync throws even though the method exists.
+          // Detect this and fall through to manual transaction handling.
+          if (e instanceof Error && e.message.includes('not supported on web')) {
+            // Fall through to manual transaction below
+          } else {
+            throw e;
+          }
+        }
+      }
+      // Manual transaction fallback (web, or platforms without exclusive transactions)
+      await database.execAsync('BEGIN TRANSACTION');
+      try {
         await fn();
-      });
+        await database.execAsync('COMMIT');
+      } catch (e) {
+        await database.execAsync('ROLLBACK');
+        throw e;
+      }
     },
 
     async close(): Promise<void> {

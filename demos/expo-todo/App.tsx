@@ -328,7 +328,7 @@ function MainApp() {
 // Adapter is selected by the EXPO_PUBLIC_ADAPTER env var:
 //   loki-idb      LokiAdapter + IndexedDB (web default)
 //   loki-memory   LokiAdapter, no persistence (native default)
-//   expo-sqlite   SQLiteAdapter + expo-sqlite  (iOS / Android native)
+//   expo-sqlite   SQLiteAdapter + expo-sqlite  (iOS / Android / web)
 
 function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
   const variant =

@@ -108,11 +108,17 @@ jobs:
   # ─── Expo web e2e ───────────────────────────────────────────────────────────
 
   e2e-expo-web:
-    name: Expo web e2e (Playwright)
+    name: "Web e2e · ${{ matrix.adapter }}"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [loki-idb, expo-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo
+    env:
+      EXPO_PUBLIC_ADAPTER: ${{ matrix.adapter }}
 
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +154,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.adapter }}
           path: demos/expo-todo/playwright-report/
           retention-days: 7
 
@@ -157,14 +163,18 @@ jobs:
   # Builds the Expo demo app for iOS Simulator and runs Maestro flows.
 
   e2e-ios:
-    name: iOS e2e (Maestro)
+    name: "iOS e2e · ${{ matrix.adapter }}"
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [loki-memory, expo-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo
     timeout-minutes: 45
     env:
-      EXPO_PUBLIC_ADAPTER: loki-memory
+      EXPO_PUBLIC_ADAPTER: ${{ matrix.adapter }}
 
     steps:
       - uses: actions/checkout@v4
@@ -361,7 +371,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: maestro-report
+          name: maestro-report-ios-${{ matrix.adapter }}
           path: |
             ~/.maestro/tests/
             /tmp/ios-screenshot.png
@@ -373,14 +383,18 @@ jobs:
   # ubuntu-latest has KVM support, making emulator startup ~3× faster than macOS.
 
   e2e-android:
-    name: Android e2e (Maestro)
+    name: "Android e2e · ${{ matrix.adapter }}"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [loki-memory, expo-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo
     timeout-minutes: 60
     env:
-      EXPO_PUBLIC_ADAPTER: loki-memory
+      EXPO_PUBLIC_ADAPTER: ${{ matrix.adapter }}
 
     steps:
       - uses: actions/checkout@v4
@@ -485,7 +499,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: maestro-android-report
+          name: maestro-android-report-${{ matrix.adapter }}
           path: |
             ~/.maestro/tests/
             /tmp/maestro-debug/
