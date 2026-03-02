@@ -12,6 +12,7 @@ name: Add a todo
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
+- assertVisible: "Buy milk"
 - pressKey: Enter
 
 # Verify a todo item appeared

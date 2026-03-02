@@ -3,7 +3,7 @@
  *
  * Demonstrates: schema, models, CRUD, live queries, hooks, reactive observation.
  */
-import React, { useState, useCallback, Suspense } from 'react';
+import React, { useState, useCallback, useRef, Suspense } from 'react';
 import {
   StyleSheet,
   Text,
@@ -49,16 +49,23 @@ type Filter = 'all' | 'active' | 'completed';
 function AddTodo() {
   const db = useDatabase();
   const [title, setTitle] = useState('');
+  const titleRef = useRef('');
+
+  const handleChangeText = useCallback((text: string) => {
+    titleRef.current = text;
+    setTitle(text);
+  }, []);
 
   const handleAdd = useCallback(async () => {
-    const trimmed = title.trim();
+    const trimmed = titleRef.current.trim();
     if (!trimmed) return;
     Keyboard.dismiss();
     await db.write(async () => {
       await db.get(Todo).create({ title: trimmed, createdAt: new Date() });
     });
+    titleRef.current = '';
     setTitle('');
-  }, [db, title]);
+  }, [db]);
 
   return (
     <View style={styles.inputCard}>
@@ -68,7 +75,7 @@ function AddTodo() {
         placeholder="What needs to be done?"
         placeholderTextColor={GRAY_400}
         value={title}
-        onChangeText={setTitle}
+        onChangeText={handleChangeText}
         onSubmitEditing={handleAdd}
         returnKeyType="done"
       />

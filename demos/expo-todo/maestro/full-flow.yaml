@@ -13,6 +13,7 @@ name: Full CRUD flow
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
+- assertVisible: "Maestro test todo"
 - pressKey: Enter
 - extendedWaitUntil:
     visible:
