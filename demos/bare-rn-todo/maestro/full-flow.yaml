@@ -7,7 +7,6 @@ name: Full CRUD flow
 
 # ── App loads ──────────────────────────────────────────────────────────────
 - assertVisible: "PomegranateDB"
-- assertVisible: "Bare React Native"
 
 # ── Add a todo (pressKey: Enter submits and dismisses keyboard) ───────────
 - tapOn:

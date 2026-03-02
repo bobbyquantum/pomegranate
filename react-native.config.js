@@ -17,9 +17,7 @@ module.exports = {
   // Pomegranate ships a native module — expose it for autolinking in consuming apps.
   dependency: {
     platforms: {
-      ios: {
-        podspecPath: './PomegranateDB.podspec',
-      },
+      ios: {},
       android: {
         sourceDir: './native/android-jsi',
         packageImportPath: 'import com.pomegranate.jsi.PomegranateJSIPackage;',
