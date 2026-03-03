@@ -9,6 +9,7 @@ A running list of outstanding work, grouped by area.
 - [x] **OpSQLiteDriver** — 17 unit tests in `src/adapters/op-sqlite/__tests__/OpSQLiteDriver.test.ts`
 - [x] **NativeSQLiteDriver** — 17 unit tests in `src/adapters/native-sqlite/__tests__/NativeSQLiteDriver.test.ts`
 - [x] **Worker adapter tests** — `LokiDispatcher` (12 tests) + `SynchronousWorker` (11 tests) in `src/adapters/loki/worker/__tests__/`
+- [x] **ExpoSQLiteDriver web compatibility** — patched for Web/WASM usage via expo-sqlite
 
 ## iOS / Native
 
@@ -46,15 +47,21 @@ A running list of outstanding work, grouped by area.
 
 ## CI / CD
 
-- [x] **GitHub Actions** — `.github/workflows/`
+- [x] **GitHub Actions** — `.github/workflows/ci.yml` (20 jobs, all green)
   - [x] Lint + type check + format check (ubuntu)
   - [x] Unit tests (`jest`) + Codecov upload (ubuntu)
   - [x] TypeScript build (ubuntu)
-  - [x] Demo e2e tests (`playwright`) (ubuntu)
-  - [x] Podspec lint `--quick` (macos-15)
-  - [x] npm pack dry-run on PR (ubuntu)
+  - [x] Podspec lint `--quick` (macos-latest)
+  - [x] npm pack dry-run on PR → shared `pack-library` job (ubuntu)
   - [x] npm publish on tag push (`v*`) with provenance (ubuntu)
+  - [x] Expo-todo Maestro e2e — Android emulator (API 29, KVM) × 4 adapters (loki-idb, expo-sqlite, op-sqlite, native-sqlite)
+  - [x] Expo-todo Maestro e2e — iOS Simulator × 4 adapters (loki-idb, expo-sqlite, op-sqlite, native-sqlite)
+  - [x] Bare-RN-todo Maestro e2e — Android emulator × 3 adapters (loki-idb, op-sqlite, native-sqlite)
+  - [x] Bare-RN-todo Maestro e2e — iOS Simulator × 3 adapters (loki-idb, op-sqlite, native-sqlite)
+  - [x] Web Playwright e2e × 2 adapters (loki-idb, expo-sqlite with WASM)
 - [x] Code coverage reporting (Codecov via lcov in CI)
+- [x] Maestro diagnostic screenshots at key steps + `onFlowError` handlers in all 8 flows
+- [x] macOS-latest runner for all iOS/podspec jobs
 - [ ] Full podspec compile check (needs `iosTest` app with pods installed)
 
 ## Package / Distribution
@@ -75,15 +82,31 @@ A running list of outstanding work, grouped by area.
 
 ## Demos
 
-- [x] **Expo web todo app** (`demos/expo-todo/`)
-- [ ] **React Native (native) demo** — `native/iosTest/` + `native/androidTest/` apps wired to NativeSQLiteAdapter
+- [x] **Expo todo app** (`demos/expo-todo/`) — web + iOS + Android, 4 adapter variants
+- [x] **Bare React Native todo app** (`demos/bare-rn-todo/`) — iOS + Android, 3 adapter variants (no Expo deps)
 - [ ] **Sync demo** — client + tiny Express/Hono server showing pull/push
 - [ ] **Encryption demo** — show encrypted adapter usage
 - [ ] **Worker demo** — demonstrate Web Worker mode for heavy queries
 
-## E2E Tests (`demos/expo-todo/e2e/`)
+## Maestro E2E Flows
 
-*Current: 11 tests (10 passing, 1 needs verification after fix)*
+*8 flows total across 2 demo apps — all passing on Android emulator + iOS Simulator*
+
+### `demos/expo-todo/maestro/`
+- [x] `add-todo.yaml` — add a todo via text input + add button
+- [x] `toggle-todo.yaml` — seed data, toggle checkbox, verify state
+- [x] `delete-todo.yaml` — seed data, swipe-to-delete, verify removal
+- [x] `full-flow.yaml` — full CRUD: add → toggle → delete → verify counts
+
+### `demos/bare-rn-todo/maestro/`
+- [x] `add-todo.yaml` — add a todo via text input + add button
+- [x] `toggle-todo.yaml` — seed data, toggle checkbox, verify state
+- [x] `delete-todo.yaml` — seed data, swipe-to-delete, verify removal
+- [x] `full-flow.yaml` — full CRUD: add → toggle → delete → verify counts
+
+## Playwright Web E2E (`demos/expo-todo/e2e/`)
+
+*12 tests — all passing*
 
 - [x] Renders app title
 - [x] Shows empty state
@@ -112,4 +135,4 @@ A running list of outstanding work, grouped by area.
 
 ---
 
-_Last updated: 2026-02-28 — iOS bridge + podspec + sqlite3 + CI/CD + NativeSQLite/OpSQLite tests + peer deps + eslint fix_
+_Last updated: 2025-07-14 — 20/20 CI green: Maestro e2e (Android + iOS) for expo-todo & bare-rn-todo, web Playwright e2e (loki-idb + expo-sqlite WASM), macOS-latest runners, diagnostic screenshots_
