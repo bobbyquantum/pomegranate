@@ -8,6 +8,8 @@ const path = require('path');
  * @type {import('@react-native/metro-config').MetroConfig}
  */
 const config = {
+  // Allow imports from demos/shared/ (e.g. ../shared/benchmarks)
+  watchFolders: [path.resolve(__dirname, '..', 'shared')],
   resolver: {
     // pomegranate-db ships optional adapters (expo-sqlite, etc.) that
     // reference peer dependencies not present in this Expo-free project.
