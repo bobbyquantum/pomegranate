@@ -1,5 +1,7 @@
 appId: com.pomegranatedb.todo.demo
 name: Add a todo
+onFlowError:
+  - takeScreenshot: add-todo-ERROR
 ---
 - stopApp
 - launchApp:
@@ -7,16 +9,19 @@ name: Add a todo
 
 # Wait for the app to fully load
 - assertVisible: "PomegranateDB"
+- takeScreenshot: add-01-app-loaded
 
 # Type a new todo and submit via Enter (dismisses keyboard reliably on both platforms)
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
 - assertVisible: "Buy milk"
-- pressKey: Enter
+- takeScreenshot: add-02-text-entered
 
-# Explicitly dismiss keyboard and wait for layout to settle
+# Tap the add button (more reliable than pressKey: Enter across API levels)
 - hideKeyboard
+- tapOn:
+    id: "add-todo-btn"
 - waitForAnimationToEnd
 
 # Verify a todo item appeared
@@ -24,7 +29,9 @@ name: Add a todo
     visible:
       id: "todo-item"
     timeout: 15000
+- takeScreenshot: add-03-todo-created
 
 # Verify stats are visible
 - assertVisible:
     id: "stats-text"
+- takeScreenshot: add-04-done

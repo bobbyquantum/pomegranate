@@ -1,5 +1,7 @@
 appId: com.pomegranatedb.todo.demo
 name: Delete a todo
+onFlowError:
+  - takeScreenshot: delete-ERROR
 ---
 - stopApp
 - launchApp:
@@ -7,6 +9,7 @@ name: Delete a todo
 
 # Wait for app to fully load
 - assertVisible: "PomegranateDB"
+- takeScreenshot: delete-01-app-loaded
 
 # Seed sample todos (avoids keyboard; proven reliable across all adapters)
 - tapOn:
@@ -15,12 +18,15 @@ name: Delete a todo
     visible:
       id: "todo-item"
     timeout: 15000
+- takeScreenshot: delete-02-seeded
 
 # Delete the first todo
 - tapOn:
     id: "todo-delete"
     index: 0
+- takeScreenshot: delete-03-deleted
 
 # Verify stats updated (at least one todo should remain from seed)
 - assertVisible:
     id: "stats-text"
+- takeScreenshot: delete-04-done

@@ -1,5 +1,7 @@
 appId: com.barerntodo
 name: Toggle a todo
+onFlowError:
+  - takeScreenshot: toggle-ERROR
 ---
 - stopApp
 - launchApp:
@@ -7,6 +9,7 @@ name: Toggle a todo
 
 # Wait for app to fully load
 - assertVisible: "PomegranateDB"
+- takeScreenshot: toggle-01-app-loaded
 
 # Seed sample todos
 - tapOn:
@@ -15,12 +18,15 @@ name: Toggle a todo
     visible:
       id: "todo-item"
     timeout: 15000
+- takeScreenshot: toggle-02-seeded
 
 # Toggle the first todo
 - tapOn:
     id: "todo-checkbox"
     index: 0
+- takeScreenshot: toggle-03-toggled
 
 # Verify stats element is visible (shows updated counts)
 - assertVisible:
     id: "stats-text"
+- takeScreenshot: toggle-04-done

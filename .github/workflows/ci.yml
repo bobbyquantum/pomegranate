@@ -441,7 +441,7 @@ jobs:
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 31
+          api-level: 29
           arch: x86_64
           target: default
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
@@ -687,7 +687,7 @@ jobs:
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 31
+          api-level: 29
           arch: x86_64
           target: default
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none

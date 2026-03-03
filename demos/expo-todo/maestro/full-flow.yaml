@@ -1,5 +1,7 @@
 appId: com.pomegranatedb.todo.demo
 name: Full CRUD flow
+onFlowError:
+  - takeScreenshot: full-crud-ERROR
 ---
 - stopApp
 - launchApp:
@@ -8,22 +10,26 @@ name: Full CRUD flow
 # ── App loads ──────────────────────────────────────────────────────────────
 - assertVisible: "PomegranateDB"
 - assertVisible: "Reactive offline-first database"
+- takeScreenshot: full-crud-01-app-loaded
 
-# ── Add a todo (pressKey: Enter submits and dismisses keyboard) ───────────
+# ── Add a todo ───────────────────────────────────────────────────────────
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
 - assertVisible: "Maestro test todo"
-- pressKey: Enter
+- takeScreenshot: full-crud-02-text-entered
 
-# Explicitly dismiss keyboard and wait for layout to settle
+# Tap the add button (more reliable than pressKey: Enter across API levels)
 - hideKeyboard
+- tapOn:
+    id: "add-todo-btn"
 - waitForAnimationToEnd
 
 - extendedWaitUntil:
     visible:
       id: "todo-item"
     timeout: 15000
+- takeScreenshot: full-crud-03-todo-created
 
 # ── Toggle it complete ─────────────────────────────────────────────────────
 - extendedWaitUntil:
@@ -33,6 +39,7 @@ name: Full CRUD flow
 - tapOn:
     id: "todo-checkbox"
     index: 0
+- takeScreenshot: full-crud-04-toggled
 
 # ── Seed sample data ──────────────────────────────────────────────────────
 - tapOn:
@@ -40,11 +47,14 @@ name: Full CRUD flow
 
 # Wait for seed to render
 - waitForAnimationToEnd
+- takeScreenshot: full-crud-05-seeded
 
 # ── Clear completed ───────────────────────────────────────────────────────
 - tapOn:
     id: "clear-completed-btn"
+- takeScreenshot: full-crud-06-cleared
 
 # ── Verify stats are visible ──────────────────────────────────────────────
 - assertVisible:
     id: "stats-text"
+- takeScreenshot: full-crud-07-done
