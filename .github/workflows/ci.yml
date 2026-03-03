@@ -350,6 +350,16 @@ jobs:
 
           maestro test maestro/
 
+      - name: Extract benchmark results
+        if: always()
+        run: |
+          xcrun simctl spawn "$SIMULATOR_UDID" log show \
+            --predicate 'eventMessage CONTAINS "POMEGRANATE_BENCHMARK"' \
+            --last 15m --style compact 2>/dev/null \
+            | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
+          echo "=== Benchmark JSON ==="
+          cat /tmp/benchmark-result.json || echo 'No benchmark data found'
+
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
@@ -358,9 +368,16 @@ jobs:
           path: |
             ~/.maestro/tests/
             /tmp/ios-screenshot.png
+            /tmp/benchmark-result.json
           retention-days: 7
 
-  # ─── Android Emulator e2e (Maestro) ─────────────────────────────────────────
+      - name: Upload benchmark data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-expo-ios-${{ matrix.adapter }}
+          path: /tmp/benchmark-result.json
+          retention-days: 7
   #
   # Builds the Expo demo app for Android and runs the same Maestro flows as iOS.
   # ubuntu-latest has KVM support, making emulator startup fast.
@@ -466,6 +483,11 @@ jobs:
 
             $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
 
+            # Extract benchmark results from logcat
+            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
+            echo "=== Benchmark JSON ==="
+            cat /tmp/benchmark-result.json || echo 'No benchmark data found'
+
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
@@ -475,6 +497,15 @@ jobs:
             ~/.maestro/tests/
             /tmp/maestro-debug/
             /tmp/app-screenshot.png
+            /tmp/benchmark-result.json
+          retention-days: 7
+
+      - name: Upload benchmark data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-expo-android-${{ matrix.adapter }}
+          path: /tmp/benchmark-result.json
           retention-days: 7
 
   # ─── Bare RN iOS Simulator e2e (Maestro) ──────────────────────────────────
@@ -614,6 +645,16 @@ jobs:
 
           maestro test maestro/
 
+      - name: Extract benchmark results
+        if: always()
+        run: |
+          xcrun simctl spawn "$SIMULATOR_UDID" log show \
+            --predicate 'eventMessage CONTAINS "POMEGRANATE_BENCHMARK"' \
+            --last 15m --style compact 2>/dev/null \
+            | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
+          echo "=== Benchmark JSON ==="
+          cat /tmp/benchmark-result.json || echo 'No benchmark data found'
+
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
@@ -622,6 +663,15 @@ jobs:
           path: |
             ~/.maestro/tests/
             /tmp/ios-screenshot.png
+            /tmp/benchmark-result.json
+          retention-days: 7
+
+      - name: Upload benchmark data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-bare-ios-${{ matrix.adapter }}
+          path: /tmp/benchmark-result.json
           retention-days: 7
 
   # ─── Bare RN Android Emulator e2e (Maestro) ─────────────────────────────────
@@ -712,6 +762,11 @@ jobs:
 
             $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/bare-rn-todo/maestro/
 
+            # Extract benchmark results from logcat
+            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
+            echo "=== Benchmark JSON ==="
+            cat /tmp/benchmark-result.json || echo 'No benchmark data found'
+
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
@@ -721,6 +776,15 @@ jobs:
             ~/.maestro/tests/
             /tmp/maestro-debug/
             /tmp/app-screenshot.png
+            /tmp/benchmark-result.json
+          retention-days: 7
+
+      - name: Upload benchmark data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-bare-android-${{ matrix.adapter }}
+          path: /tmp/benchmark-result.json
           retention-days: 7
 
   # ─── Podspec lint ────────────────────────────────────────────────────────────
@@ -738,3 +802,97 @@ jobs:
         run: pod spec lint PomegranateDB.podspec --allow-warnings --quick
         # --quick skips compilation, which needs React-Core pods installed.
         # Real compilation test happens in the iosTest project (TODO).
+
+  # ─── Benchmark Summary ──────────────────────────────────────────────────────
+  #
+  # Collects benchmark results from all e2e jobs and renders a summary table
+  # in the GitHub Actions job summary.
+
+  benchmark-summary:
+    name: Benchmark summary
+    needs: [e2e-ios, e2e-android, e2e-bare-ios, e2e-bare-android]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all benchmark artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-*
+          path: benchmarks/
+          merge-multiple: false
+
+      - name: Generate benchmark summary
+        run: |
+          cat <<'PYEOF' > generate-summary.py
+          import json, glob, os, sys
+
+          rows = []
+          for path in sorted(glob.glob("benchmarks/*/benchmark-result.json")):
+              try:
+                  with open(path) as f:
+                      content = f.read().strip()
+                  if not content:
+                      continue
+                  data = json.loads(content)
+                  # Derive platform + app from artifact directory name
+                  # e.g. benchmarks/benchmark-expo-ios-loki-memory/benchmark-result.json
+                  dirname = os.path.basename(os.path.dirname(path))
+                  parts = dirname.replace("benchmark-", "").split("-", 2)
+                  app = parts[0] if len(parts) > 0 else "?"         # expo / bare
+                  platform = parts[1] if len(parts) > 1 else "?"    # ios / android
+                  adapter = parts[2] if len(parts) > 2 else "?"     # loki-memory etc.
+                  total_ms = data.get("totalMs", "?")
+                  for r in data.get("results", []):
+                      rows.append({
+                          "app": app,
+                          "platform": platform,
+                          "adapter": adapter,
+                          "operation": r["name"],
+                          "total_ms": r["totalMs"],
+                          "avg_ms": r["avgMs"],
+                          "ops_per_sec": r["opsPerSec"],
+                      })
+              except Exception as e:
+                  print(f"Warning: could not parse {path}: {e}", file=sys.stderr)
+
+          if not rows:
+              summary = "## ⚡ Benchmark Results\n\nNo benchmark data collected.\n"
+          else:
+              # Build markdown table
+              lines = ["## ⚡ Benchmark Results\n"]
+              lines.append("| App | Platform | Adapter | Operation | Total | Avg | ops/s |")
+              lines.append("|-----|----------|---------|-----------|-------|-----|-------|")
+              for r in rows:
+                  lines.append(
+                      f"| {r['app']} | {r['platform']} | {r['adapter']} "
+                      f"| {r['operation']} | {r['total_ms']}ms "
+                      f"| {r['avg_ms']}ms | {r['ops_per_sec']:,} |"
+                  )
+              lines.append("")
+
+              # Per-adapter summary
+              adapters = {}
+              for r in rows:
+                  key = f"{r['app']}/{r['platform']}/{r['adapter']}"
+                  adapters.setdefault(key, []).append(r)
+
+              lines.append("### Summary by adapter\n")
+              lines.append("| App | Platform | Adapter | Total ops/s (avg) |")
+              lines.append("|-----|----------|---------|-------------------|")
+              for key in sorted(adapters):
+                  rs = adapters[key]
+                  avg_ops = sum(r["ops_per_sec"] for r in rs) // len(rs)
+                  parts = key.split("/")
+                  lines.append(f"| {parts[0]} | {parts[1]} | {parts[2]} | {avg_ops:,} |")
+              lines.append("")
+              summary = "\n".join(lines)
+
+          # Write to job summary
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
+          with open(summary_path, "a") as f:
+              f.write(summary)
+
+          # Also print to stdout for logs
+          print(summary)
+          PYEOF
+          python3 generate-summary.py

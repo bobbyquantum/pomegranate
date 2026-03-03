@@ -359,9 +359,9 @@ function BenchmarkPanel() {
       {running && <Text style={styles.benchProgress}>{progress}</Text>}
 
       {suite && (
-        <View style={styles.benchResults}>
+        <View testID="benchmark-complete" style={styles.benchResults}>
           <View style={styles.benchSummary}>
-            <Text style={styles.benchSummaryText}>
+            <Text testID="benchmark-summary" style={styles.benchSummaryText}>
               {suite.adapter} — Total: {formatMs(suite.totalMs)}
             </Text>
           </View>
@@ -430,12 +430,14 @@ function MainApp() {
       {/* Tab bar */}
       <View style={styles.tabBar}>
         <Pressable
+          testID="tab-todos"
           onPress={() => setTab('todos')}
           style={[styles.tab, tab === 'todos' && styles.tabActive]}
         >
           <Text style={[styles.tabText, tab === 'todos' && styles.tabTextActive]}>📝 Todos</Text>
         </Pressable>
         <Pressable
+          testID="tab-benchmarks"
           onPress={() => setTab('benchmarks')}
           style={[styles.tab, tab === 'benchmarks' && styles.tabActive]}
         >

@@ -177,12 +177,18 @@ export async function runBenchmarks(
   });
   results.push(measure('Stress insert+delete (N=5000)', N_STRESS * 2, performance.now() - stressStart));
 
-  return {
+  const suite: BenchmarkSuite = {
     results,
     totalMs: Math.round(performance.now() - suiteStart),
     adapter: adapterName,
     timestamp: new Date().toISOString(),
   };
+
+  // Log structured results so CI can extract them from logcat / simulator logs.
+  // Single line with a unique prefix for easy grep extraction.
+  console.log(`[POMEGRANATE_BENCHMARK]${JSON.stringify(suite)}`);
+
+  return suite;
 }
 
 // ─── Formatting ────────────────────────────────────────────────────────────

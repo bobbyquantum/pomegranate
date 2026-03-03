@@ -1,0 +1,35 @@
+appId: com.barerntodo
+name: Run benchmarks
+onFlowError:
+  - takeScreenshot: benchmark-ERROR
+---
+- stopApp
+- launchApp:
+    appId: com.barerntodo
+
+# ── App loads ──────────────────────────────────────────────────────────────
+- assertVisible: "PomegranateDB"
+- takeScreenshot: benchmark-01-app-loaded
+
+# ── Navigate to benchmarks tab ────────────────────────────────────────────
+- tapOn:
+    id: "tab-benchmarks"
+- assertVisible: "Database Benchmarks"
+- takeScreenshot: benchmark-02-tab-opened
+
+# ── Run benchmarks ────────────────────────────────────────────────────────
+- tapOn:
+    id: "benchmark-btn"
+
+# Wait for benchmarks to complete (stress test can take a while on CI)
+- extendedWaitUntil:
+    visible:
+      id: "benchmark-complete"
+    timeout: 300000
+
+- takeScreenshot: benchmark-03-results
+
+# ── Verify results are displayed ──────────────────────────────────────────
+- assertVisible:
+    id: "benchmark-summary"
+- takeScreenshot: benchmark-04-done
