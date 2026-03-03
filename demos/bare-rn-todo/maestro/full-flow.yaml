@@ -19,7 +19,6 @@ onFlowError:
 - takeScreenshot: full-crud-02-text-entered
 
 # Tap the add button (more reliable than pressKey: Enter across API levels)
-- hideKeyboard
 - tapOn:
     id: "add-todo-btn"
 - waitForAnimationToEnd
