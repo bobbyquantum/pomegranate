@@ -21,6 +21,7 @@ import {
   ScrollView,
   Image,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -47,6 +48,8 @@ import {
 const TodoSchema = m.model('todos', {
   title: m.text(),
   isCompleted: m.boolean().default(false),
+  priority: m.number().default(0),
+  notes: m.text().optional(),
   createdAt: m.date('created_at').readonly(),
 });
 
@@ -265,9 +268,9 @@ function BottomActions() {
     const completed = await col.fetch(col.query((qb) => qb.where('isCompleted', 'eq', true)));
     if (completed.length === 0) return;
     await db.write(async () => {
-      for (const t of completed) {
-        await t.destroyPermanently();
-      }
+      await db.batch(
+        completed.map((t) => ({ type: 'destroyPermanently' as const, table: 'todos', id: t.id })),
+      );
     });
   }, [db]);
 
@@ -344,6 +347,47 @@ function BenchmarkPanel() {
     }
   }, [db]);
 
+  const handleReset = useCallback(() => {
+    Alert.alert('Reset Database', 'This will delete all data and re-create the database. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reset',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await db.reset();
+            setSuite(null);
+            setProgress('Database reset ✓');
+          } catch (error) {
+            setProgress(`Reset failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        },
+      },
+    ]);
+  }, [db]);
+
+  const handleBulkInsert = useCallback(async () => {
+    setRunning(true);
+    setProgress('Inserting 500 todos…');
+    try {
+      await db.write(async () => {
+        for (let i = 0; i < 500; i++) {
+          await db.get(Todo).create({
+            title: `Todo #${i + 1}`,
+            isCompleted: i % 3 === 0,
+            priority: i % 5,
+            createdAt: new Date(),
+          });
+        }
+      });
+      setProgress('Inserted 500 todos ✓ (167 completed, 333 active)');
+    } catch (error) {
+      setProgress(`Insert failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [db]);
+
   return (
     <ScrollView style={styles.benchContainer} contentContainerStyle={styles.benchContent}>
       <Text style={styles.benchTitle}>⚡ Database Benchmarks</Text>
@@ -368,7 +412,33 @@ function BenchmarkPanel() {
         )}
       </Pressable>
 
-      {running && <Text style={styles.benchProgress}>{progress}</Text>}
+      <Pressable
+        onPress={handleReset}
+        disabled={running}
+        style={({ pressed }) => [
+          styles.benchButton,
+          styles.benchResetButton,
+          running && styles.benchButtonDisabled,
+          pressed && !running && { opacity: 0.7 },
+        ]}
+      >
+        <Text style={[styles.benchButtonText, styles.benchResetButtonText]}>🗑 Reset Database</Text>
+      </Pressable>
+
+      <Pressable
+        onPress={handleBulkInsert}
+        disabled={running}
+        style={({ pressed }) => [
+          styles.benchButton,
+          styles.benchResetButton,
+          running && styles.benchButtonDisabled,
+          pressed && !running && { opacity: 0.7 },
+        ]}
+      >
+        <Text style={[styles.benchButtonText, styles.benchResetButtonText]}>📦 Bulk Insert 500 Todos</Text>
+      </Pressable>
+
+      {(running || (!suite && progress)) && <Text style={styles.benchProgress}>{progress}</Text>}
 
       {suite && (
         <View testID="benchmark-complete" style={styles.benchResults}>
@@ -683,6 +753,8 @@ const styles = StyleSheet.create({
   benchButtonDisabled: { opacity: 0.6 },
   benchButtonPressed: { backgroundColor: POMEGRANATE_LIGHT },
   benchButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  benchResetButton: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: GRAY_400, marginBottom: 8 },
+  benchResetButtonText: { color: GRAY_700, fontSize: 14 },
   benchProgress: { fontSize: 13, color: GRAY_500, textAlign: 'center', marginBottom: 12 },
   benchResults: { marginTop: 8 },
   benchSummary: {

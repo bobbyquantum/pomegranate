@@ -149,9 +149,13 @@ export async function runBenchmarks(
   const toDelete = await collection.fetch(collection.query());
   const N_DELETE = toDelete.length;
   await db.write(async () => {
-    for (const record of toDelete) {
-      await record.destroyPermanently();
-    }
+    await db.batch(
+      toDelete.map((record: any) => ({
+        type: 'destroyPermanently' as const,
+        table: collection.table,
+        id: record.id,
+      })),
+    );
   });
   results.push(measure(`Delete (N=${N_DELETE})`, N_DELETE, performance.now() - deleteStart));
 
@@ -171,9 +175,13 @@ export async function runBenchmarks(
   });
   const stressRecords = await collection.fetch(collection.query());
   await db.write(async () => {
-    for (const record of stressRecords) {
-      await record.destroyPermanently();
-    }
+    await db.batch(
+      stressRecords.map((record: any) => ({
+        type: 'destroyPermanently' as const,
+        table: collection.table,
+        id: record.id,
+      })),
+    );
   });
   results.push(measure('Stress insert+delete (N=5000)', N_STRESS * 2, performance.now() - stressStart));
 

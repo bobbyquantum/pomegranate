@@ -147,6 +147,14 @@ jobs:
           path: demos/expo-todo/playwright-report/
           retention-days: 7
 
+      - name: Upload benchmark data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-expo-web-${{ matrix.adapter }}
+          path: demos/expo-todo/benchmark-results/benchmark-result.json
+          retention-days: 7
+
   # ─── iOS Simulator e2e (Maestro) ────────────────────────────────────────────
   #
   # Builds the Expo demo app for iOS Simulator and runs Maestro flows.
@@ -810,7 +818,7 @@ jobs:
 
   benchmark-summary:
     name: Benchmark summary
-    needs: [e2e-ios, e2e-android, e2e-bare-ios, e2e-bare-android]
+    needs: [e2e-expo-web, e2e-ios, e2e-android, e2e-bare-ios, e2e-bare-android]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -884,6 +892,45 @@ jobs:
                   avg_ops = sum(r["ops_per_sec"] for r in rs) // len(rs)
                   parts = key.split("/")
                   lines.append(f"| {parts[0]} | {parts[1]} | {parts[2]} | {avg_ops:,} |")
+              lines.append("")
+
+              # Per-operation comparison across all adapters/platforms
+              # This is the key table for comparing providers side-by-side
+              operations = []
+              seen_ops = set()
+              for r in rows:
+                  if r["operation"] not in seen_ops:
+                      operations.append(r["operation"])
+                      seen_ops.add(r["operation"])
+
+              # Build a map: operation -> list of (label, ops_per_sec)
+              op_map = {}
+              adapter_labels = []
+              seen_labels = set()
+              for r in rows:
+                  label = f"{r['app']}/{r['platform']}/{r['adapter']}"
+                  if label not in seen_labels:
+                      adapter_labels.append(label)
+                      seen_labels.add(label)
+                  op_map.setdefault(r["operation"], {})[label] = r
+
+              lines.append("### Comparison by operation\n")
+              header = "| Operation |"
+              separator = "|-----------|"
+              for label in adapter_labels:
+                  header += f" {label} |"
+                  separator += "----------|"
+              lines.append(header)
+              lines.append(separator)
+              for op in operations:
+                  row = f"| {op} |"
+                  for label in adapter_labels:
+                      r = op_map.get(op, {}).get(label)
+                      if r:
+                          row += f" {r['avg_ms']}ms ({r['ops_per_sec']:,}/s) |"
+                      else:
+                          row += " — |"
+                  lines.append(row)
               lines.append("")
               summary = "\n".join(lines)
 
