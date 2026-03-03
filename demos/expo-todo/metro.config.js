@@ -9,6 +9,13 @@ config.watchFolders = [
   path.resolve(__dirname, '..', 'shared'),
 ];
 
+// Ensure modules imported from demos/shared/ can resolve dependencies
+// (e.g. @babel/runtime) from this project's node_modules.
+config.resolver.nodeModulesPaths = [
+  ...(config.resolver.nodeModulesPaths || []),
+  path.resolve(__dirname, 'node_modules'),
+];
+
 // ─── WASM asset support ──────────────────────────────────────────────────────
 // expo-sqlite on web uses wa-sqlite compiled to WASM.  Metro doesn't recognise
 // .wasm files by default — register them as assets so Metro serves them as
