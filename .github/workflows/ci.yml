@@ -395,6 +395,9 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # ── Install Android SDK (not pre-installed on ARM runners) ──────
+      - uses: android-actions/setup-android@v3
+
       # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
         uses: actions/download-artifact@v4
@@ -647,6 +650,9 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      # ── Install Android SDK (not pre-installed on ARM runners) ──────
+      - uses: android-actions/setup-android@v3
 
       # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
