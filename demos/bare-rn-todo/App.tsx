@@ -13,6 +13,7 @@ import {
   Pressable,
   FlatList,
   ActivityIndicator,
+  Image,
   Keyboard,
   StatusBar,
   Platform,
@@ -303,7 +304,7 @@ function Header() {
   return (
     <View style={styles.header}>
       <View style={styles.logoSquircle}>
-        <Text style={styles.logoEmoji}>🔴</Text>
+        <Image source={require('./assets/logo.png')} style={styles.logo} resizeMode="contain" />
       </View>
       <View style={styles.headerTextGroup}>
         <Text style={styles.headerTitle}>PomegranateDB</Text>
@@ -418,8 +419,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 14,
   },
-  logoEmoji: {
-    fontSize: 28,
+  logo: {
+    width: 34,
+    height: 34,
   },
   headerTextGroup: {
     flex: 1,
