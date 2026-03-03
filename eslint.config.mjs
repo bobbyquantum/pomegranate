@@ -17,6 +17,7 @@ export default tseslint.config(
       'expo-plugin/**',
       'examples/**',
       'coverage/**',
+      'demos/**',
       '*.config.js',
       '*.config.mjs',
       'babel.config.js',
