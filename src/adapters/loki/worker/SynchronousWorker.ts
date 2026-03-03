@@ -61,18 +61,18 @@ export class SynchronousWorker implements WorkerInterface {
         });
         await this._executor.initialize(schema);
         result = { value: undefined };
-      } else if (!this._executor) {
-        throw new Error('Worker not initialized — call setUp first');
-      } else {
+      } else if (this._executor) {
         const method = (this._executor as any)[action.type];
         if (typeof method !== 'function') {
-          throw new Error(`Unknown command: ${action.type}`);
+          throw new TypeError(`Unknown command: ${action.type}`);
         }
         const value = await method.call(this._executor, ...action.payload);
         result = { value };
+      } else {
+        throw new Error('Worker not initialized — call setUp first');
       }
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (error_: unknown) {
+      const error = error_ instanceof Error ? error_ : new Error(String(error_));
       result = { error: { message: error.message, stack: error.stack } };
     }
 

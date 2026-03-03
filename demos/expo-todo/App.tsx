@@ -3,7 +3,7 @@
  *
  * Demonstrates: schema, models, CRUD, live queries, hooks, reactive observation.
  */
-import React, { useState, useCallback, Suspense } from 'react';
+import React, { useState, useCallback, useRef, Suspense } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,6 +12,7 @@ import {
   Pressable,
   FlatList,
   ActivityIndicator,
+  Keyboard,
   SafeAreaView,
   Image,
   Platform,
@@ -24,6 +25,7 @@ import {
   useCollection,
   useCount,
   LokiAdapter,
+  SQLiteAdapter,
 } from 'pomegranate-db';
 import { Todo } from './src/database';
 
@@ -47,28 +49,38 @@ type Filter = 'all' | 'active' | 'completed';
 function AddTodo() {
   const db = useDatabase();
   const [title, setTitle] = useState('');
+  const titleRef = useRef('');
+
+  const handleChangeText = useCallback((text: string) => {
+    titleRef.current = text;
+    setTitle(text);
+  }, []);
 
   const handleAdd = useCallback(async () => {
-    const trimmed = title.trim();
+    const trimmed = titleRef.current.trim();
     if (!trimmed) return;
+    Keyboard.dismiss();
     await db.write(async () => {
       await db.get(Todo).create({ title: trimmed, createdAt: new Date() });
     });
+    titleRef.current = '';
     setTitle('');
-  }, [db, title]);
+  }, [db]);
 
   return (
     <View style={styles.inputCard}>
       <TextInput
+        testID="todo-input"
         style={styles.input}
         placeholder="What needs to be done?"
         placeholderTextColor={GRAY_400}
         value={title}
-        onChangeText={setTitle}
+        onChangeText={handleChangeText}
         onSubmitEditing={handleAdd}
         returnKeyType="done"
       />
       <Pressable
+        testID="add-todo-btn"
         style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}
         onPress={handleAdd}
       >
@@ -94,8 +106,9 @@ function TodoItem({ todo }: { todo: Todo }) {
   }, [db, todo]);
 
   return (
-    <View style={styles.todoRow}>
+    <View testID="todo-item" style={styles.todoRow}>
       <Pressable
+        testID="todo-checkbox"
         onPress={handleToggle}
         style={({ pressed }) => [
           styles.checkbox,
@@ -112,6 +125,7 @@ function TodoItem({ todo }: { todo: Todo }) {
         {title}
       </Text>
       <Pressable
+        testID="todo-delete"
         onPress={handleDelete}
         style={({ pressed }) => [styles.deleteBtn, pressed && styles.deleteBtnPressed]}
         hitSlop={8}
@@ -185,7 +199,7 @@ function TodoList() {
       <FilterTabs active={filter} onChange={setFilter} />
 
       <View style={styles.statsRow}>
-        <Text style={styles.statsText}>
+        <Text testID="stats-text" style={styles.statsText}>
           {activeCount} remaining · {completedCount} done
         </Text>
       </View>
@@ -257,6 +271,7 @@ function BottomActions() {
   return (
     <View style={styles.bottomActions}>
       <Pressable
+        testID="seed-btn"
         onPress={handleSeed}
         style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
       >
@@ -265,6 +280,7 @@ function BottomActions() {
 
       {count > 0 && (
         <Pressable
+          testID="clear-completed-btn"
           onPress={handleClearCompleted}
           style={({ pressed }) => [
             styles.actionBtn,
@@ -293,6 +309,9 @@ function Header() {
         <Text style={styles.headerTitle}>PomegranateDB</Text>
         <Text style={styles.headerSubtitle}>Reactive offline-first database</Text>
       </View>
+      <View style={styles.adapterBadge}>
+        <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
+      </View>
     </View>
   );
 }
@@ -312,13 +331,78 @@ function MainApp() {
 }
 
 // ─── Database setup (stable reference, outside render) ─────────────────────
+//
+// Adapter is selected by the EXPO_PUBLIC_ADAPTER env var:
+//   loki-idb        LokiAdapter + IndexedDB (web default)
+//   loki-memory     LokiAdapter, no persistence (native default)
+//   expo-sqlite     SQLiteAdapter + expo-sqlite  (iOS / Android / web)
+//   op-sqlite       SQLiteAdapter + op-sqlite    (iOS / Android only)
+//   native-sqlite   SQLiteAdapter + JSI bridge   (iOS / Android only)
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
-const adapter = new LokiAdapter({
-  databaseName: 'pomegranate-demo',
-  persistenceAdapter: new IncrementalIDBAdapter(),
-});
+function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
+  const variant =
+    process.env.EXPO_PUBLIC_ADAPTER ??
+    (Platform.OS === 'web' ? 'loki-idb' : 'loki-memory');
+
+  if (variant === 'expo-sqlite') {
+    // Requires expo-sqlite: npx expo install expo-sqlite
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createExpoSQLiteDriver(),
+      }),
+      name: 'ExpoSQLite',
+    };
+  }
+
+  if (variant === 'op-sqlite') {
+    // Requires @op-engineering/op-sqlite (native only, no web)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createOpSQLiteDriver(),
+      }),
+      name: 'OpSQLite',
+    };
+  }
+
+  if (variant === 'native-sqlite') {
+    // PomegranateDB's own JSI C++ bridge (native only, no web)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createNativeSQLiteDriver } = require('pomegranate-db/native-sqlite');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createNativeSQLiteDriver(),
+      }),
+      name: 'NativeSQLite (JSI)',
+    };
+  }
+
+  if (variant === 'loki-idb') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
+    return {
+      adapter: new LokiAdapter({
+        databaseName: 'pomegranate-demo',
+        persistenceAdapter: new IncrementalIDBAdapter(),
+      }),
+      name: 'Loki + IndexedDB',
+    };
+  }
+
+  // loki-memory (native default): pure in-memory, works on all platforms
+  return {
+    adapter: new LokiAdapter({ databaseName: 'pomegranate-demo' }),
+    name: 'Loki (memory)',
+  };
+}
+
+const { adapter, name: ADAPTER_NAME } = createAdapter();
 
 export default function App() {
   return (
@@ -387,6 +471,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.75)',
     marginTop: 2,
+  },
+  adapterBadge: {
+    marginLeft: 8,
+    backgroundColor: 'rgba(0,0,0,0.20)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: 'center',
+  },
+  adapterBadgeText: {
+    color: 'rgba(255,255,255,0.90)',
+    fontSize: 11,
+    fontWeight: '600' as const,
+    letterSpacing: 0.3,
   },
 
   // Input

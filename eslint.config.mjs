@@ -1,7 +1,6 @@
 // @ts-check
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
-import eslintConfigPrettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
 import stylistic from '@stylistic/eslint-plugin';
 import unicorn from 'eslint-plugin-unicorn';
@@ -62,21 +61,74 @@ export default tseslint.config(
         prefer: 'type-imports',
         fixStyle: 'separate-type-imports',
       }],
-      '@typescript-eslint/no-require-imports': 'off', // We use require() for lazy loading
+      '@typescript-eslint/no-require-imports': 'error',
       '@typescript-eslint/no-this-alias': 'off', // Used in observable patterns
       '@typescript-eslint/ban-ts-comment': 'off',
 
-      // ── Stylistic ──────────────────────────────────────────────────
-      '@stylistic/type-annotation-spacing': 'warn',
-      '@stylistic/member-delimiter-style': ['warn', {
+      // ── Stylistic (formatting — replaces Prettier) ────────────────
+      '@stylistic/semi': ['error', 'always'],
+      '@stylistic/quotes': ['error', 'single', { avoidEscape: true }],
+      '@stylistic/comma-dangle': ['error', 'always-multiline'],
+      '@stylistic/arrow-parens': ['error', 'always'],
+      '@stylistic/object-curly-spacing': ['error', 'always'],
+      '@stylistic/no-trailing-spaces': 'error',
+      '@stylistic/eol-last': ['error', 'always'],
+      '@stylistic/max-len': ['warn', {
+        code: 100,
+        ignoreStrings: true,
+        ignoreTemplateLiterals: true,
+        ignoreUrls: true,
+        ignoreComments: true,
+        ignoreRegExpLiterals: true,
+      }],
+      // ── Stylistic (TypeScript-specific) ───────────────────────────
+      '@stylistic/type-annotation-spacing': 'error',
+      '@stylistic/member-delimiter-style': ['error', {
         multiline: { delimiter: 'semi', requireLast: true },
         singleline: { delimiter: 'semi', requireLast: false },
       }],
-      '@stylistic/type-generic-spacing': 'warn',
-      '@stylistic/type-named-tuple-spacing': 'warn',
+      '@stylistic/type-generic-spacing': 'error',
+      '@stylistic/type-named-tuple-spacing': 'error',
 
       // ── Unicorn (tuned for our project) ─────────────────────────────
-      'unicorn/prevent-abbreviations': 'off', // db, fn, qb, etc. are fine
+      'unicorn/prevent-abbreviations': ['warn', {
+        allowList: {
+          // ── Standalone short forms ──────────────────────────────────
+          db: true,
+          fn: true,
+          opts: true,
+          args: true,
+          params: true,
+          val: true,
+          err: true,
+          doc: true,
+          docs: true,
+          str: true,
+          obj: true,
+          ref: true,
+          i: true,
+          // ── Compound identifiers that use allowed abbreviations ─────
+          // db
+          LokiDb: true,
+          requireDb: true,
+          // fn
+          TestFn: true,
+          TeardownFn: true,
+          // val
+          defaultVal: true,
+          // doc
+          versionDoc: true,
+          // ref
+          ModelCollectionRef: true,
+          ModelDatabaseRef: true,
+          // args
+          Args: true,
+          // ── Full names flagged by suffix heuristics ─────────────────
+          DatabaseSuspenseProviderProps: true,
+          UseSearchOptions: true,
+          UseSearchResult: true,
+        },
+      }],
       'unicorn/no-null': 'off', // We use null throughout the DB layer
       'unicorn/no-array-reduce': 'off', // Reduce is fine for SQL builders
       'unicorn/no-array-for-each': 'off', // forEach is idiomatic for subscriptions
@@ -97,6 +149,11 @@ export default tseslint.config(
       'unicorn/switch-case-braces': ['warn', 'avoid'],
       'unicorn/catch-error-name': ['warn', { name: 'error' }],
       'unicorn/prefer-node-protocol': 'off', // Not relevant for RN library
+      'unicorn/prefer-add-event-listener': 'off', // Worker onmessage is the standard pattern
+      'unicorn/prefer-global-this': 'off', // Worker self is the standard pattern
+      'unicorn/prefer-structured-clone': 'warn',
+      'unicorn/prefer-type-error': 'warn',
+      'unicorn/prefer-export-from': 'warn',
       'unicorn/import-style': 'off', // We have our own import conventions
       'unicorn/no-process-exit': 'off', // Not applicable
 
@@ -139,9 +196,12 @@ export default tseslint.config(
       'unicorn/prefer-node-protocol': 'off',
       'unicorn/prefer-structured-clone': 'off',
       'unicorn/no-array-sort': 'off',
+      'unicorn/filename-case': 'off',
+      'unicorn/prefer-at': 'off',
+      'unicorn/catch-error-name': 'off',
+      'unicorn/prefer-add-event-listener': 'off',
+      'unicorn/prefer-global-this': 'off',
+      'unicorn/prefer-type-error': 'off',
     },
   },
-
-  // ─── Prettier compatibility (must be last) ──────────────────────────
-  eslintConfigPrettier,
 );

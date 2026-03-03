@@ -54,14 +54,14 @@ function TestRunner() {
       <Text
         style={[
           styles.status,
-          status === 'passed' ? styles.pass : status === 'failed' ? styles.fail : styles.running,
+          status === 'passed' ? styles.pass : (status === 'failed' ? styles.fail : styles.running),
         ]}
       >
         {status === 'running'
           ? '⏳ Running...'
-          : status === 'passed'
+          : (status === 'passed'
             ? '✅ All tests passed'
-            : '❌ Some tests failed'}
+            : '❌ Some tests failed')}
       </Text>
       {report && (
         <Text style={styles.summary}>

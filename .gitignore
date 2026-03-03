@@ -3,6 +3,9 @@ node_modules/
 .pnp
 .pnp.js
 
+# Demo lockfile — rebuilt each CI run from a freshly packed tarball
+demos/expo-todo/package-lock.json
+
 # Build output
 dist/
 build/
@@ -64,3 +67,5 @@ yarn-error.log*
 
 # Local tool binaries
 /ktlint
+demos/expo-go/package-lock.json
+IconKitchen-Output.zip

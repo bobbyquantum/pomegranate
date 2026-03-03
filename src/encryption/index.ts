@@ -12,6 +12,7 @@
 import type { StorageAdapter, Migration, EncryptionConfig } from '../adapters/types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../query/types';
 import type { DatabaseSchema, RawRecord } from '../schema/types';
+import { createCipheriv, createDecipheriv, randomBytesNode, isNodeCryptoAvailable } from './nodeCrypto';
 
 // ─── Columns that are never encrypted ──────────────────────────────────
 
@@ -37,7 +38,7 @@ export class EncryptionManager {
   /** Encrypt a string value */
   async encrypt(plaintext: string): Promise<string> {
     const key = await this.getKey();
-    const iv = randomBytes(12);
+    const iv = await randomBytes(12);
     const encoder = new TextEncoder();
     const data = encoder.encode(plaintext);
 
@@ -59,15 +60,17 @@ export class EncryptionManager {
     }
 
     // Fallback: Node.js crypto
-    try {
-      const crypto = require('crypto');
-      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-      const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
-      const tag = cipher.getAuthTag();
-      return encodeBase64(iv) + ':' + encodeBase64(encrypted) + ':' + encodeBase64(tag);
-    } catch {
-      throw new Error('No crypto implementation available for encryption');
+    if (isNodeCryptoAvailable) {
+      try {
+        const cipher = createCipheriv('aes-256-gcm', key, iv);
+        const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+        const tag = cipher.getAuthTag();
+        return encodeBase64(iv) + ':' + encodeBase64(encrypted) + ':' + encodeBase64(tag);
+      } catch {
+        throw new Error('No crypto implementation available for encryption');
+      }
     }
+    throw new Error('No crypto implementation available for encryption');
   }
 
   /** Decrypt a string value */
@@ -95,18 +98,20 @@ export class EncryptionManager {
     }
 
     // Fallback: Node.js crypto
-    try {
-      const crypto = require('crypto');
-      const iv = decodeBase64(parts[0]);
-      const data = decodeBase64(parts[1]);
-      const tag = decodeBase64(parts[2]);
-      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-      decipher.setAuthTag(tag);
-      const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-      return new TextDecoder().decode(decrypted);
-    } catch (error) {
-      throw new Error(`Decryption failed: ${error}`, { cause: error });
+    if (isNodeCryptoAvailable) {
+      try {
+        const iv = decodeBase64(parts[0]);
+        const data = decodeBase64(parts[1]);
+        const tag = decodeBase64(parts[2]);
+        const decipher = createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(tag);
+        const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
+        return new TextDecoder().decode(decrypted);
+      } catch (error) {
+        throw new Error(`Decryption failed: ${error}`, { cause: error });
+      }
     }
+    throw new Error('No crypto implementation available for decryption');
   }
 }
 
@@ -290,24 +295,25 @@ export class EncryptingAdapter implements StorageAdapter {
 
 // ─── Utility functions ──────────────────────────────────────────────────
 
-function randomBytes(length: number): Uint8Array {
+async function randomBytes(length: number): Promise<Uint8Array> {
   if (globalThis.crypto !== undefined && globalThis.crypto.getRandomValues) {
     const buf = new Uint8Array(length);
     globalThis.crypto.getRandomValues(buf);
     return buf;
   }
 
-  try {
-    const crypto = require('crypto');
-    return new Uint8Array(crypto.randomBytes(length));
-  } catch {
-    // Last resort: Math.random (NOT cryptographically secure)
-    const buf = new Uint8Array(length);
-    for (let i = 0; i < length; i++) {
-      buf[i] = Math.floor(Math.random() * 256);
-    }
-    return buf;
+  if (isNodeCryptoAvailable) {
+    try {
+      return randomBytesNode(length);
+    } catch { /* fall through to Math.random */ }
   }
+
+  // Last resort: Math.random (NOT cryptographically secure)
+  const buf = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    buf[i] = Math.floor(Math.random() * 256);
+  }
+  return buf;
 }
 
 function encodeBase64(data: Uint8Array | Buffer): string {

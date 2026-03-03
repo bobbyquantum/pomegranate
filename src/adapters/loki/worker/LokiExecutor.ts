@@ -115,9 +115,8 @@ export class LokiExecutor {
     this._initialized = true;
   }
 
-  private _createLokiDb(): Promise<LokiDb> {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Loki = require('lokijs');
+  private async _createLokiDb(): Promise<LokiDb> {
+    const { default: Loki } = await import('lokijs');
 
     const hasPersistence = !!this._config.persistenceAdapter;
     const options: Record<string, unknown> = {};

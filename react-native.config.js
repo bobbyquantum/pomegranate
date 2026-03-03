@@ -1,8 +1,8 @@
 /**
  * React Native configuration for PomegranateDB.
  *
- * This is needed by the RN autolinking system when building
- * the Android test app in native/androidTest/.
+ * This is used by the RN autolinking system when building
+ * the Android / iOS test apps in native/androidTest/ and native/iosTest/.
  */
 module.exports = {
   project: {
@@ -10,7 +10,19 @@ module.exports = {
       sourceDir: './native/androidTest',
       appName: 'app',
     },
+    ios: {
+      sourceDir: './native/iosTest',
+    },
   },
-  // No native dependencies to autolink — we use pure JS/TS
-  dependencies: {},
+  // Pomegranate ships a native module — expose it for autolinking in consuming apps.
+  dependency: {
+    platforms: {
+      ios: {},
+      android: {
+        sourceDir: './native/android-jsi',
+        packageImportPath: 'import com.pomegranate.jsi.PomegranateJSIPackage;',
+        packageInstance: 'new PomegranateJSIPackage()',
+      },
+    },
+  },
 };

@@ -125,9 +125,9 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
    */
   async count(queryOrBuilder?: QueryDescriptor | QueryBuilder): Promise<number> {
     const descriptor = queryOrBuilder
-      ? queryOrBuilder instanceof QueryBuilder
+      ? (queryOrBuilder instanceof QueryBuilder
         ? queryOrBuilder.build()
-        : queryOrBuilder
+        : queryOrBuilder)
       : this.query().build();
 
     return this._database._adapter.count(descriptor);
@@ -227,9 +227,9 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
    */
   observeCount(queryOrBuilder?: QueryDescriptor | QueryBuilder): Observable<number> {
     const descriptor = queryOrBuilder
-      ? queryOrBuilder instanceof QueryBuilder
+      ? (queryOrBuilder instanceof QueryBuilder
         ? queryOrBuilder.build()
-        : queryOrBuilder
+        : queryOrBuilder)
       : this.query().build();
 
     return new SharedObservable<number>((emit) => {

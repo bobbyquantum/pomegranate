@@ -98,10 +98,11 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
   let db: OpSQLiteDatabase | null = null;
   let opSQLite: OpSQLiteModule | null = null;
 
-  function getOpSQLite(): OpSQLiteModule {
+  async function getOpSQLite(): Promise<OpSQLiteModule> {
     if (!opSQLite) {
       try {
-        opSQLite = require('@op-engineering/op-sqlite') as OpSQLiteModule;
+        // @ts-expect-error — @op-engineering/op-sqlite is an optional peer dependency
+        opSQLite = (await import('@op-engineering/op-sqlite')) as unknown as OpSQLiteModule;
       } catch {
         throw new Error(
           '@op-engineering/op-sqlite is not installed. Install it with:\n' +
@@ -122,7 +123,7 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
 
   return {
     async open(name: string): Promise<void> {
-      const sqlite = getOpSQLite();
+      const sqlite = await getOpSQLite();
       const dbName = name.endsWith('.db') ? name : `${name}.db`;
 
       const openOptions: OpSQLiteOpenOptions = { name: dbName };

@@ -47,8 +47,8 @@ async function processNext(): Promise<void> {
       // Auto-create IncrementalIDBAdapter for browser persistence
       let persistenceAdapter: unknown;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
+        const { default: IncrementalIDBAdapter } =
+          await import('lokijs/src/incremental-indexeddb-adapter');
         persistenceAdapter = new IncrementalIDBAdapter();
       } catch {
         // IndexedDB not available — fall back to memory-only
@@ -62,18 +62,18 @@ async function processNext(): Promise<void> {
       });
       await executor.initialize(schema);
       result = { value: undefined };
-    } else if (!executor) {
-      throw new Error('Worker not initialized — call setUp first');
-    } else {
+    } else if (executor) {
       const method = (executor as any)[action.type];
       if (typeof method !== 'function') {
-        throw new Error(`Unknown command: ${action.type}`);
+        throw new TypeError(`Unknown command: ${action.type}`);
       }
       const value = await method.call(executor, ...action.payload);
       result = { value };
+    } else {
+      throw new Error('Worker not initialized — call setUp first');
     }
-  } catch (err: unknown) {
-    const error = err instanceof Error ? err : new Error(String(err));
+  } catch (error_: unknown) {
+    const error = error_ instanceof Error ? error_ : new Error(String(error_));
     // Log for worker-side debugging (stack traces are lost across postMessage)
     console.error(`[LokiWorker] Error in ${action.type}:`, error);
     result = { error: { message: error.message, stack: error.stack } };

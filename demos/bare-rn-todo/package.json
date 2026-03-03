@@ -1,0 +1,36 @@
+{
+  "name": "bare-rn-todo",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "prebuild": "cd ../.. && npm run build && npm pack",
+    "reinstall": "npm run prebuild && npm install ../../pomegranate-db-0.1.0.tgz"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-native": "0.83.2",
+    "@op-engineering/op-sqlite": "^15.2.5",
+    "pomegranate-db": "file:../../pomegranate-db-0.1.0.tgz",
+    "react-native-safe-area-context": "^5.5.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native-community/cli-platform-android": "20.0.0",
+    "@react-native-community/cli-platform-ios": "20.0.0",
+    "@react-native/babel-preset": "0.83.2",
+    "@react-native/metro-config": "0.83.2",
+    "@react-native/typescript-config": "0.83.2",
+    "@types/react": "^19.2.0",
+    "babel-plugin-transform-inline-environment-variables": "^0.4.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
