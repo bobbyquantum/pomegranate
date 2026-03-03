@@ -363,13 +363,12 @@ jobs:
   # ─── Android Emulator e2e (Maestro) ─────────────────────────────────────────
   #
   # Builds the Expo demo app for Android and runs the same Maestro flows as iOS.
-  # ARM runner runs the ARM64 emulator natively — faster boot, no KVM needed,
-  # and 37% cheaper than x86 ubuntu-latest.
+  # ubuntu-latest has KVM support, making emulator startup fast.
 
   e2e-android:
     name: "Android e2e · ${{ matrix.adapter }}"
     needs: [pack-library]
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -395,8 +394,13 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ── Install Android SDK (not pre-installed on ARM runners) ──────
-      - uses: android-actions/setup-android@v3
+      # ── Enable KVM for hardware-accelerated emulator ────────────────
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
@@ -438,8 +442,8 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31
-          arch: arm64-v8a
-          target: google_apis
+          arch: x86_64
+          target: default
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
@@ -625,7 +629,7 @@ jobs:
   e2e-bare-android:
     name: "Bare RN Android · ${{ matrix.adapter }}"
     needs: [pack-library]
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -651,8 +655,13 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ── Install Android SDK (not pre-installed on ARM runners) ──────
-      - uses: android-actions/setup-android@v3
+      # ── Enable KVM for hardware-accelerated emulator ────────────────
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
@@ -679,8 +688,8 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31
-          arch: arm64-v8a
-          target: google_apis
+          arch: x86_64
+          target: default
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
