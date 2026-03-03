@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Keyboard,
   SafeAreaView,
+  ScrollView,
   Image,
   Platform,
 } from 'react-native';
@@ -28,6 +29,12 @@ import {
   SQLiteAdapter,
 } from 'pomegranate-db';
 import { Todo } from './src/database';
+import {
+  runBenchmarks,
+  formatMs,
+  formatOpsPerSec,
+  type BenchmarkSuite,
+} from '../shared/benchmarks';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -297,6 +304,97 @@ function BottomActions() {
   );
 }
 
+// ─── Benchmark Panel ───────────────────────────────────────────────────────
+
+function BenchmarkPanel() {
+  const db = useDatabase();
+  const [suite, setSuite] = useState<BenchmarkSuite | null>(null);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState('');
+
+  const handleRun = useCallback(async () => {
+    setRunning(true);
+    setSuite(null);
+    setProgress('Preparing…');
+    try {
+      const result = await runBenchmarks(
+        db,
+        Todo,
+        ADAPTER_NAME,
+        setProgress,
+      );
+      setSuite(result);
+    } catch (error) {
+      setProgress(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [db]);
+
+  return (
+    <ScrollView style={styles.benchContainer} contentContainerStyle={styles.benchContent}>
+      <Text style={styles.benchTitle}>⚡ Database Benchmarks</Text>
+      <Text style={styles.benchDesc}>
+        Runs insert, query, update, and delete operations to measure adapter performance.
+      </Text>
+
+      <Pressable
+        testID="benchmark-btn"
+        onPress={handleRun}
+        disabled={running}
+        style={({ pressed }) => [
+          styles.benchButton,
+          running && styles.benchButtonDisabled,
+          pressed && !running && styles.benchButtonPressed,
+        ]}
+      >
+        {running ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.benchButtonText}>Run Benchmarks</Text>
+        )}
+      </Pressable>
+
+      {running && <Text style={styles.benchProgress}>{progress}</Text>}
+
+      {suite && (
+        <View style={styles.benchResults}>
+          <View style={styles.benchSummary}>
+            <Text style={styles.benchSummaryText}>
+              {suite.adapter} — Total: {formatMs(suite.totalMs)}
+            </Text>
+          </View>
+
+          {/* Table header */}
+          <View style={styles.benchTableRow}>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader, { flex: 2 }]}>Operation</Text>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader]}>Total</Text>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader]}>Avg</Text>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader]}>ops/s</Text>
+          </View>
+
+          {/* Table rows */}
+          {suite.results.map((r, i) => (
+            <View
+              key={r.name}
+              style={[styles.benchTableRow, i % 2 === 0 && styles.benchTableRowAlt]}
+            >
+              <Text style={[styles.benchTableCell, { flex: 2 }]} numberOfLines={1}>
+                {r.name}
+              </Text>
+              <Text style={styles.benchTableCell}>{formatMs(r.totalMs)}</Text>
+              <Text style={styles.benchTableCell}>{formatMs(r.avgMs)}</Text>
+              <Text style={[styles.benchTableCell, styles.benchOps]}>
+                {formatOpsPerSec(r.opsPerSec)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
 // ─── Header ────────────────────────────────────────────────────────────────
 
 function Header() {
@@ -318,14 +416,41 @@ function Header() {
 
 // ─── Main App ──────────────────────────────────────────────────────────────
 
+type Tab = 'todos' | 'benchmarks';
+
 function MainApp() {
+  const [tab, setTab] = useState<Tab>('todos');
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       <Header />
-      <AddTodo />
-      <TodoList />
-      <BottomActions />
+
+      {/* Tab bar */}
+      <View style={styles.tabBar}>
+        <Pressable
+          onPress={() => setTab('todos')}
+          style={[styles.tab, tab === 'todos' && styles.tabActive]}
+        >
+          <Text style={[styles.tabText, tab === 'todos' && styles.tabTextActive]}>📝 Todos</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setTab('benchmarks')}
+          style={[styles.tab, tab === 'benchmarks' && styles.tabActive]}
+        >
+          <Text style={[styles.tabText, tab === 'benchmarks' && styles.tabTextActive]}>⚡ Benchmarks</Text>
+        </Pressable>
+      </View>
+
+      {tab === 'todos' ? (
+        <>
+          <AddTodo />
+          <TodoList />
+          <BottomActions />
+        </>
+      ) : (
+        <BenchmarkPanel />
+      )}
     </SafeAreaView>
   );
 }
@@ -704,5 +829,118 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 15,
     color: GRAY_500,
+  },
+
+  // Tab bar
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: GRAY_200,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: POMEGRANATE,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: GRAY_500,
+  },
+  tabTextActive: {
+    color: POMEGRANATE,
+  },
+
+  // Benchmarks
+  benchContainer: {
+    flex: 1,
+  },
+  benchContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  benchTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: GRAY_900,
+    marginBottom: 6,
+  },
+  benchDesc: {
+    fontSize: 14,
+    color: GRAY_500,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  benchButton: {
+    backgroundColor: POMEGRANATE,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  benchButtonPressed: {
+    backgroundColor: POMEGRANATE_LIGHT,
+  },
+  benchButtonDisabled: {
+    opacity: 0.6,
+  },
+  benchButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  benchProgress: {
+    fontSize: 13,
+    color: GRAY_500,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  benchResults: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: GRAY_200,
+    backgroundColor: '#fff',
+  },
+  benchSummary: {
+    backgroundColor: POMEGRANATE_FAINT,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: GRAY_200,
+  },
+  benchSummaryText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: POMEGRANATE,
+  },
+  benchTableRow: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  benchTableRowAlt: {
+    backgroundColor: GRAY_50,
+  },
+  benchTableCell: {
+    flex: 1,
+    fontSize: 12,
+    color: GRAY_700,
+  },
+  benchTableHeader: {
+    fontWeight: '700',
+    color: GRAY_900,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  benchOps: {
+    fontWeight: '700',
+    color: POMEGRANATE,
   },
 });
