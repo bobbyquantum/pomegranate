@@ -13,11 +13,11 @@ import {
   FlatList,
   ActivityIndicator,
   Keyboard,
-  SafeAreaView,
   ScrollView,
   Image,
   Platform,
 } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   DatabaseSuspenseProvider,
@@ -400,12 +400,14 @@ function BenchmarkPanel() {
 function Header() {
   return (
     <View style={styles.header}>
-      <View style={styles.logoSquircle}>
-        <Image source={require('./assets/logo.png')} style={styles.logo} resizeMode="contain" />
-      </View>
-      <View style={styles.headerTextGroup}>
-        <Text style={styles.headerTitle}>PomegranateDB</Text>
-        <Text style={styles.headerSubtitle}>Reactive offline-first database</Text>
+      <View style={styles.headerTop}>
+        <View style={styles.logoSquircle}>
+          <Image source={require('./assets/logo.png')} style={styles.logo} resizeMode="contain" />
+        </View>
+        <View style={styles.headerTextGroup}>
+          <Text style={styles.headerTitle}>PomegranateDB</Text>
+          <Text style={styles.headerSubtitle}>Reactive offline-first database</Text>
+        </View>
       </View>
       <View style={styles.adapterBadge}>
         <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
@@ -533,23 +535,25 @@ const { adapter, name: ADAPTER_NAME } = createAdapter();
 
 export default function App() {
   return (
-    <Suspense
-      fallback={
-        <View style={styles.splash}>
-          <Image
-            source={require('./assets/logo.png')}
-            style={styles.splashLogo}
-            resizeMode="contain"
-          />
-          <ActivityIndicator size="large" color={POMEGRANATE} style={{ marginTop: 24 }} />
-          <Text style={styles.splashText}>Loading database…</Text>
-        </View>
-      }
-    >
-      <DatabaseSuspenseProvider adapter={adapter} models={[Todo]}>
-        <MainApp />
-      </DatabaseSuspenseProvider>
-    </Suspense>
+    <SafeAreaProvider>
+      <Suspense
+        fallback={
+          <View style={styles.splash}>
+            <Image
+              source={require('./assets/logo.png')}
+              style={styles.splashLogo}
+              resizeMode="contain"
+            />
+            <ActivityIndicator size="large" color={POMEGRANATE} style={{ marginTop: 24 }} />
+            <Text style={styles.splashText}>Loading database…</Text>
+          </View>
+        }
+      >
+        <DatabaseSuspenseProvider adapter={adapter} models={[Todo]}>
+          <MainApp />
+        </DatabaseSuspenseProvider>
+      </Suspense>
+    </SafeAreaProvider>
   );
 }
 
@@ -564,12 +568,14 @@ const styles = StyleSheet.create({
 
   // Header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: Platform.OS === 'web' ? 20 : 56,
-    paddingBottom: 18,
+    paddingTop: 12,
+    paddingBottom: 14,
     paddingHorizontal: 20,
     backgroundColor: POMEGRANATE,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   logoSquircle: {
     width: 48,
@@ -600,12 +606,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   adapterBadge: {
-    marginLeft: 8,
+    alignSelf: 'flex-start',
+    marginTop: 10,
     backgroundColor: 'rgba(0,0,0,0.20)',
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    alignSelf: 'center',
   },
   adapterBadgeText: {
     color: 'rgba(255,255,255,0.90)',

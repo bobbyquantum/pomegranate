@@ -401,12 +401,14 @@ function BenchmarkPanel() {
 function Header() {
   return (
     <View style={styles.header}>
-      <View style={styles.logoSquircle}>
-        <Image source={require('./assets/logo.png')} style={styles.logo} resizeMode="contain" />
-      </View>
-      <View style={styles.headerTextGroup}>
-        <Text style={styles.headerTitle}>PomegranateDB</Text>
-        <Text style={styles.headerSubtitle}>Bare React Native · No Expo</Text>
+      <View style={styles.headerTop}>
+        <View style={styles.logoSquircle}>
+          <Image source={require('./assets/logo.png')} style={styles.logo} resizeMode="contain" />
+        </View>
+        <View style={styles.headerTextGroup}>
+          <Text style={styles.headerTitle}>PomegranateDB</Text>
+          <Text style={styles.headerSubtitle}>Bare React Native · No Expo</Text>
+        </View>
       </View>
       <View style={styles.adapterBadge}>
         <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
@@ -530,12 +532,14 @@ const styles = StyleSheet.create({
     backgroundColor: GRAY_50,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingTop: 12,
-    paddingBottom: 18,
+    paddingBottom: 14,
     paddingHorizontal: 20,
     backgroundColor: POMEGRANATE,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   logoSquircle: {
     width: 48,
@@ -565,12 +569,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   adapterBadge: {
-    marginLeft: 8,
+    alignSelf: 'flex-start',
+    marginTop: 10,
     backgroundColor: 'rgba(0,0,0,0.20)',
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    alignSelf: 'center',
   },
   adapterBadgeText: {
     color: 'rgba(255,255,255,0.90)',
