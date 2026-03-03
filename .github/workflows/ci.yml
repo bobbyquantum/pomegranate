@@ -154,7 +154,7 @@ jobs:
   e2e-ios:
     name: "iOS e2e · ${{ matrix.adapter }}"
     needs: [pack-library]
-    runs-on: macos-15
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
@@ -363,12 +363,13 @@ jobs:
   # ─── Android Emulator e2e (Maestro) ─────────────────────────────────────────
   #
   # Builds the Expo demo app for Android and runs the same Maestro flows as iOS.
-  # ubuntu-latest has KVM support, making emulator startup ~3× faster than macOS.
+  # ARM runner runs the ARM64 emulator natively — faster boot, no KVM needed,
+  # and 37% cheaper than x86 ubuntu-latest.
 
   e2e-android:
     name: "Android e2e · ${{ matrix.adapter }}"
     needs: [pack-library]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
@@ -393,14 +394,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-
-      # ── Enable KVM for hardware-accelerated emulator ────────────────
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
 
       # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
@@ -441,9 +434,9 @@ jobs:
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
-          arch: x86_64
-          target: default
+          api-level: 31
+          arch: arm64-v8a
+          target: google_apis
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
@@ -484,7 +477,7 @@ jobs:
   e2e-bare-ios:
     name: "Bare RN iOS · ${{ matrix.adapter }}"
     needs: [pack-library]
-    runs-on: macos-15
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
@@ -629,7 +622,7 @@ jobs:
   e2e-bare-android:
     name: "Bare RN Android · ${{ matrix.adapter }}"
     needs: [pack-library]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
@@ -655,14 +648,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ── Enable KVM for hardware-accelerated emulator ────────────────
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
       # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
         uses: actions/download-artifact@v4
@@ -687,9 +672,9 @@ jobs:
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
-          arch: x86_64
-          target: default
+          api-level: 31
+          arch: arm64-v8a
+          target: google_apis
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
@@ -730,7 +715,7 @@ jobs:
 
   podspec-lint:
     name: Podspec lint
-    runs-on: macos-15
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 

@@ -15,6 +15,10 @@ name: Add a todo
 - assertVisible: "Buy milk"
 - pressKey: Enter
 
+# Explicitly dismiss keyboard and wait for layout to settle
+- hideKeyboard
+- waitForAnimationToEnd
+
 # Verify a todo item appeared
 - extendedWaitUntil:
     visible:

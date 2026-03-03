@@ -14,6 +14,11 @@ name: Full CRUD flow
 - inputText: "Maestro test todo"
 - assertVisible: "Maestro test todo"
 - pressKey: Enter
+
+# Explicitly dismiss keyboard and wait for layout to settle
+- hideKeyboard
+- waitForAnimationToEnd
+
 - extendedWaitUntil:
     visible:
       id: "todo-item"
