@@ -15,7 +15,10 @@ onFlowError:
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
-- assertVisible: "Maestro test todo"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Maestro test todo"
+    timeout: 5000
 - takeScreenshot: full-crud-02-text-entered
 
 # Tap the add button (more reliable than pressKey: Enter across API levels)
