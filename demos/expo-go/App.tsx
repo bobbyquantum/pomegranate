@@ -9,7 +9,7 @@
  *   npm install
  *   npx expo start          # scan QR with Expo Go on your phone
  */
-import React, { useState, useCallback, Suspense } from 'react';
+import React, { useState, useCallback, useEffect, Suspense } from 'react';
 import {
   StyleSheet,
   Text,
@@ -321,6 +321,66 @@ function Header() {
   );
 }
 
+// ─── DB Size / Download helpers ────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+/** Query SQLite file size via PRAGMA page_count × page_size */
+async function getDbFileSize(db: any): Promise<number | null> {
+  try {
+    const driver = db?._adapter?._driver;
+    if (!driver?.query) return null;
+    const [pc] = await driver.query('PRAGMA page_count');
+    const [ps] = await driver.query('PRAGMA page_size');
+    const pageCount = Number(pc?.page_count ?? pc?.['page_count'] ?? 0);
+    const pageSize = Number(ps?.page_size ?? ps?.['page_size'] ?? 0);
+    if (pageCount && pageSize) return pageCount * pageSize;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Download the OPFS database file (web only) */
+async function downloadDb(): Promise<void> {
+  if (Platform.OS !== 'web') return;
+  try {
+    const root = await (navigator as any).storage.getDirectory();
+    // wa-sqlite stores under the root or in an "expo-sqlite" subfolder.
+    // Walk the tree to find `.db` files.
+    const files: { name: string; handle: any }[] = [];
+    async function walk(dir: any, prefix: string) {
+      for await (const [name, handle] of dir) {
+        if (handle.kind === 'file' && name.endsWith('.db')) {
+          files.push({ name: prefix + name, handle });
+        } else if (handle.kind === 'directory') {
+          await walk(handle, prefix + name + '/');
+        }
+      }
+    }
+    await walk(root, '');
+    for (const { name, handle } of files) {
+      const file = await handle.getFile();
+      const blob = new Blob([await file.arrayBuffer()]);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name.replace(/\//g, '_');
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    if (files.length === 0) {
+      // eslint-disable-next-line no-alert
+      (window as any).alert('No .db files found in OPFS');
+    }
+  } catch (e) {
+    console.error('Download failed', e);
+  }
+}
+
 // ─── Benchmark Panel ───────────────────────────────────────────────────────
 
 function BenchmarkPanel() {
@@ -328,6 +388,14 @@ function BenchmarkPanel() {
   const [suite, setSuite] = useState<BenchmarkSuite | null>(null);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
+  const [dbSize, setDbSize] = useState<number | null>(null);
+
+  const refreshSize = useCallback(async () => {
+    setDbSize(await getDbFileSize(db));
+  }, [db]);
+
+  // Refresh size on mount and after each benchmark
+  useEffect(() => { refreshSize(); }, [refreshSize]);
 
   const handleRun = useCallback(async () => {
     setRunning(true);
@@ -341,6 +409,7 @@ function BenchmarkPanel() {
         setProgress,
       );
       setSuite(result);
+      await refreshSize();
     } catch (error) {
       setProgress(`Error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -382,12 +451,13 @@ function BenchmarkPanel() {
         }
       });
       setProgress('Inserted 500 todos ✓ (167 completed, 333 active)');
+      await refreshSize();
     } catch (error) {
       setProgress(`Insert failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setRunning(false);
     }
-  }, [db]);
+  }, [db, refreshSize]);
 
   return (
     <ScrollView style={styles.benchContainer} contentContainerStyle={styles.benchContent}>
@@ -395,6 +465,22 @@ function BenchmarkPanel() {
       <Text style={styles.benchDesc}>
         Runs insert, query, update, and delete operations to measure adapter performance.
       </Text>
+
+      {/* DB file size card */}
+      <View style={styles.dbSizeCard}>
+        <Text style={styles.dbSizeLabel}>Database size</Text>
+        <Text style={styles.dbSizeValue}>
+          {dbSize != null ? formatBytes(dbSize) : '—'}
+        </Text>
+        {Platform.OS === 'web' && (
+          <Pressable
+            onPress={downloadDb}
+            style={({ pressed }) => [styles.downloadBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.downloadBtnText}>⬇ Download .db</Text>
+          </Pressable>
+        )}
+      </View>
 
       <Pressable
         testID="benchmark-btn"
@@ -801,6 +887,25 @@ const styles = StyleSheet.create({
   benchButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   benchResetButton: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: GRAY_400, marginBottom: 8 },
   benchResetButtonText: { color: GRAY_700, fontSize: 14 },
+  dbSizeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: GRAY_200,
+  },
+  dbSizeLabel: { fontSize: 13, color: GRAY_500, fontWeight: '600', marginRight: 8 },
+  dbSizeValue: { fontSize: 15, fontWeight: '700', color: GRAY_900, flex: 1 },
+  downloadBtn: {
+    backgroundColor: POMEGRANATE_FAINT,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  downloadBtnText: { fontSize: 12, fontWeight: '700', color: POMEGRANATE },
   benchProgress: { fontSize: 13, color: GRAY_500, textAlign: 'center', marginBottom: 12 },
   benchResults: { marginTop: 8 },
   benchSummary: {
