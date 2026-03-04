@@ -2,13 +2,8 @@ import { defineConfig } from '@playwright/test';
 
 const adapter = process.env.EXPO_PUBLIC_ADAPTER ?? 'loki-idb';
 
-// Skip benchmark spec for expo-sqlite on web — wa-sqlite is too slow
-// for the 5000-insert stress test on CI. Functional tests still run.
-const ignoreBenchmark = adapter === 'expo-sqlite' ? ['**/benchmark.spec.ts'] : [];
-
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: ignoreBenchmark,
   timeout: 30_000,
   retries: 1,
   reporter: [['html', { open: 'never' }], ['list']],
