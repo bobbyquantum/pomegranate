@@ -345,24 +345,35 @@ async function getDbFileSize(db: any): Promise<number | null> {
   }
 }
 
-/** Download the OPFS database file (web only) */
+/** List all files in OPFS (for debugging / download) */
+async function listOpfsFiles(): Promise<{ name: string; handle: any; size: number }[]> {
+  const root = await (navigator as any).storage.getDirectory();
+  const files: { name: string; handle: any; size: number }[] = [];
+  async function walk(dir: any, prefix: string) {
+    for await (const [name, handle] of dir) {
+      if (handle.kind === 'file') {
+        const f = await handle.getFile();
+        files.push({ name: prefix + name, handle, size: f.size });
+      } else if (handle.kind === 'directory') {
+        await walk(handle, prefix + name + '/');
+      }
+    }
+  }
+  await walk(root, '');
+  return files;
+}
+
+/** Download all OPFS files as a single zip-like bundle, or individually */
 async function downloadDb(): Promise<void> {
   if (Platform.OS !== 'web') return;
   try {
-    const root = await (navigator as any).storage.getDirectory();
-    // wa-sqlite stores under the root or in an "expo-sqlite" subfolder.
-    // Walk the tree to find `.db` files.
-    const files: { name: string; handle: any }[] = [];
-    async function walk(dir: any, prefix: string) {
-      for await (const [name, handle] of dir) {
-        if (handle.kind === 'file' && name.endsWith('.db')) {
-          files.push({ name: prefix + name, handle });
-        } else if (handle.kind === 'directory') {
-          await walk(handle, prefix + name + '/');
-        }
-      }
+    const files = await listOpfsFiles();
+    console.log('[OPFS] files:', files.map((f) => `${f.name} (${f.size})`));
+    if (files.length === 0) {
+      (window as any).alert('No files found in OPFS'); // eslint-disable-line no-alert
+      return;
     }
-    await walk(root, '');
+    // Download each file
     for (const { name, handle } of files) {
       const file = await handle.getFile();
       const blob = new Blob([await file.arrayBuffer()]);
@@ -371,10 +382,6 @@ async function downloadDb(): Promise<void> {
       a.download = name.replace(/\//g, '_');
       a.click();
       URL.revokeObjectURL(a.href);
-    }
-    if (files.length === 0) {
-      // eslint-disable-next-line no-alert
-      (window as any).alert('No .db files found in OPFS');
     }
   } catch (e) {
     console.error('Download failed', e);
