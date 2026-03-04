@@ -15,6 +15,10 @@ env:
 - takeScreenshot: full-crud-01-app-loaded
 
 # ── Select adapter via picker ─────────────────────────────────────────────
+- extendedWaitUntil:
+    visible:
+      id: "adapter-option-${ADAPTER}"
+    timeout: 15000
 - tapOn:
     id: "adapter-option-${ADAPTER}"
 - extendedWaitUntil:

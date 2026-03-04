@@ -42,35 +42,43 @@ export function AdapterPicker({ options, selected, onSelect }: Props) {
   });
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={pickerStyles.row}
+    <View
       style={pickerStyles.container}
+      accessible={false}
     >
-      {available.map((opt) => (
-        <Pressable
-          key={opt.variant}
-          testID={`adapter-option-${opt.variant}`}
-          onPress={() => onSelect(opt.variant)}
-          style={({ pressed }) => [
-            pickerStyles.chip,
-            opt.variant === selected && pickerStyles.chipSelected,
-            pressed && pickerStyles.chipPressed,
-          ]}
-        >
-          <Text
-            style={[
-              pickerStyles.chipText,
-              opt.variant === selected && pickerStyles.chipTextSelected,
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={pickerStyles.row}
+        accessible={false}
+      >
+        {available.map((opt) => (
+          <Pressable
+            key={opt.variant}
+            testID={`adapter-option-${opt.variant}`}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel={opt.label ?? opt.name}
+            onPress={() => onSelect(opt.variant)}
+            style={({ pressed }) => [
+              pickerStyles.chip,
+              opt.variant === selected && pickerStyles.chipSelected,
+              pressed && pickerStyles.chipPressed,
             ]}
-            numberOfLines={1}
           >
-            {opt.label ?? opt.name}
-          </Text>
-        </Pressable>
-      ))}
-    </ScrollView>
+            <Text
+              style={[
+                pickerStyles.chipText,
+                opt.variant === selected && pickerStyles.chipTextSelected,
+              ]}
+              numberOfLines={1}
+            >
+              {opt.label ?? opt.name}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
