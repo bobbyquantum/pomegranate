@@ -530,11 +530,13 @@ function MainApp() {
 // ─── Database setup (stable reference, outside render) ─────────────────────
 //
 // Adapter is selected by the EXPO_PUBLIC_ADAPTER env var:
-//   loki-idb        LokiAdapter + IndexedDB (web default)
-//   loki-memory     LokiAdapter, no persistence (native default)
-//   expo-sqlite     SQLiteAdapter + expo-sqlite  (iOS / Android / web)
-//   op-sqlite       SQLiteAdapter + op-sqlite    (iOS / Android only)
-//   native-sqlite   SQLiteAdapter + JSI bridge   (iOS / Android only)
+//   loki-idb           LokiAdapter + IndexedDB (web default)
+//   loki-memory        LokiAdapter, no persistence (native default)
+//   expo-sqlite        SQLiteAdapter + expo-sqlite async (iOS / Android / web)
+//   expo-sqlite-sync   SQLiteAdapter + expo-sqlite sync JSI (iOS / Android only)
+//   op-sqlite          SQLiteAdapter + op-sqlite sync (iOS / Android only)
+//   op-sqlite-async    SQLiteAdapter + op-sqlite async (iOS / Android only)
+//   native-sqlite      SQLiteAdapter + JSI bridge (iOS / Android only)
 
 function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
   const variant =
@@ -550,7 +552,20 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
         databaseName: 'pomegranate-demo',
         driver: createExpoSQLiteDriver(),
       }),
-      name: 'ExpoSQLite',
+      name: 'ExpoSQLite (async)',
+    };
+  }
+
+  if (variant === 'expo-sqlite-sync') {
+    // Sync JSI path — faster on native, no web support
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createExpoSQLiteDriver({ preferSync: true }),
+      }),
+      name: 'ExpoSQLite (sync)',
     };
   }
 
@@ -563,7 +578,20 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
         databaseName: 'pomegranate-demo',
         driver: createOpSQLiteDriver(),
       }),
-      name: 'OpSQLite',
+      name: 'OpSQLite (sync)',
+    };
+  }
+
+  if (variant === 'op-sqlite-async') {
+    // Async path — dispatches to worker thread, slightly slower per-op
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-demo',
+        driver: createOpSQLiteDriver({ preferSync: false }),
+      }),
+      name: 'OpSQLite (async)',
     };
   }
 

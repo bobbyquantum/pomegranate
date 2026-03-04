@@ -39,6 +39,31 @@ export interface SQLiteDriver {
   query(sql: string, bindings?: unknown[]): Promise<Record<string, unknown>[]>;
   executeInTransaction(fn: () => Promise<void>): Promise<void>;
   close(): Promise<void>;
+
+  /**
+   * Optional: direct synchronous execute, bypassing the async Promise wrapping.
+   * Available on drivers that support JSI sync calls (op-sqlite, native-sqlite,
+   * expo-sqlite in preferSync mode). Used by benchmarks for apples-to-apples
+   * sync-vs-async comparisons.
+   */
+  executeSync?(sql: string, bindings?: unknown[]): void;
+
+  /**
+   * Optional: explicitly async execute, always going through the async path
+   * even when the driver is configured for sync mode.
+   * Used by benchmarks to measure async overhead.
+   */
+  executeAsync?(sql: string, bindings?: unknown[]): Promise<void>;
+
+  /**
+   * Optional: execute multiple statements in a single native call.
+   * When provided, SQLiteAdapter.batch() will prefer this over
+   * looping individual execute() calls inside a transaction.
+   *
+   * Each command is a [sql, bindings] tuple. The driver should
+   * execute them atomically (in a single transaction).
+   */
+  executeBatch?(commands: Array<[string, unknown[]]>): Promise<void>;
 }
 
 // ─── SQLite Adapter Config ────────────────────────────────────────────────
@@ -158,34 +183,46 @@ export class SQLiteAdapter implements StorageAdapter {
   // ─── Batch ──────────────────────────────────────────────────────────
 
   async batch(operations: BatchOperation[]): Promise<void> {
-    await this._driver.executeInTransaction(async () => {
-      for (const op of operations) {
-        switch (op.type) {
-          case 'create': {
-            const { sql, bindings } = insertSQL(op.table, op.rawRecord!);
-            await this._driver.execute(sql, bindings);
-            break;
-          }
-          case 'update': {
-            const { sql, bindings } = updateSQL(op.table, op.rawRecord!);
-            await this._driver.execute(sql, bindings);
-            break;
-          }
-          case 'delete':
-            await this._driver.execute(
-              `UPDATE "${op.table}" SET "_status" = 'deleted' WHERE "id" = ?`,
-              [op.id!],
-            );
-            break;
-
-          case 'destroyPermanently': {
-            const { sql, bindings } = deleteSQL(op.table, op.id!);
-            await this._driver.execute(sql, bindings);
-            break;
-          }
+    // Build the list of [sql, bindings] tuples for all operations
+    const commands: Array<[string, unknown[]]> = [];
+    for (const op of operations) {
+      switch (op.type) {
+        case 'create': {
+          const { sql, bindings } = insertSQL(op.table, op.rawRecord!);
+          commands.push([sql, bindings]);
+          break;
+        }
+        case 'update': {
+          const { sql, bindings } = updateSQL(op.table, op.rawRecord!);
+          commands.push([sql, bindings]);
+          break;
+        }
+        case 'delete':
+          commands.push([
+            `UPDATE "${op.table}" SET "_status" = 'deleted' WHERE "id" = ?`,
+            [op.id!],
+          ]);
+          break;
+        case 'destroyPermanently': {
+          const { sql, bindings } = deleteSQL(op.table, op.id!);
+          commands.push([sql, bindings]);
+          break;
         }
       }
-    });
+    }
+
+    // Prefer the driver's native batch if available (single JSI call,
+    // single transaction — avoids per-statement round-trips).
+    if (this._driver.executeBatch) {
+      await this._driver.executeBatch(commands);
+    } else {
+      // Fallback: loop individual execute() calls inside a transaction
+      await this._driver.executeInTransaction(async () => {
+        for (const [sql, bindings] of commands) {
+          await this._driver.execute(sql, bindings);
+        }
+      });
+    }
   }
 
   // ─── Search ──────────────────────────────────────────────────────────

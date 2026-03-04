@@ -145,11 +145,34 @@ export function createNativeSQLiteDriver(config?: NativeSQLiteDriverConfig): SQL
       }
     },
 
+    async executeBatch(commands: Array<[string, unknown[]]>): Promise<void> {
+      const db = requireAdapter();
+      // Single JSI call: sends all commands to C++ which runs them
+      // in one transaction — avoids per-statement JSI round-trips.
+      db.executeBatch(
+        commands.map(([sql, bindings]) => ({ sql, args: bindings })),
+      );
+    },
+
     async close(): Promise<void> {
       if (adapter) {
         adapter.close();
         adapter = null;
       }
+    },
+
+    // ── Raw sync/async for benchmarking ──────────────────────────────────
+    // NativeSQLite is always sync (JSI direct calls), so executeSync is
+    // the natural path and executeAsync is just a Promise wrapper.
+
+    executeSync(sql: string, bindings?: unknown[]): void {
+      const db = requireAdapter();
+      db.execute(sql, bindings ?? []);
+    },
+
+    async executeAsync(sql: string, bindings?: unknown[]): Promise<void> {
+      const db = requireAdapter();
+      db.execute(sql, bindings ?? []);
     },
   };
 }

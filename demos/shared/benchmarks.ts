@@ -3,6 +3,12 @@
  *
  * Runs a series of database operations and measures wall-clock time.
  * Designed to work with any adapter (Loki, ExpoSQLite, OpSQLite, NativeSQLite).
+ *
+ * Operations 1–9 go through the ORM (Collection.create, db.batch, etc.)
+ * and are identical for every adapter — fair apples-to-apples comparison.
+ *
+ * Operations 10–11 bypass the ORM and hit the SQL driver directly to
+ * isolate sync-vs-async overhead. They are skipped for non-SQL adapters (Loki).
  */
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -184,6 +190,59 @@ export async function runBenchmarks(
     );
   });
   results.push(measure('Stress insert+delete (N=5000)', N_STRESS * 2, performance.now() - stressStart));
+
+  // ── 10–11. Raw SQL sync vs async (bypass ORM) ───────────────────────
+  //
+  // These operations bypass the ORM layer entirely and call the SQL
+  // driver directly. This isolates the sync/async overhead of the
+  // underlying SQLite library. Skipped for non-SQL adapters (Loki).
+  //
+  // We access the driver through private internals — acceptable for
+  // benchmarking purposes.
+
+  const driver = (db as any)?._adapter?._driver;
+  const hasSyncAsync = driver?.executeSync && driver?.executeAsync;
+
+  if (hasSyncAsync) {
+    const N_RAW = 500;
+    const RAW_TABLE = '__pomegranate_bench_raw';
+
+    // Create a temporary benchmark table (not a model table)
+    await driver.execute(
+      `CREATE TABLE IF NOT EXISTS "${RAW_TABLE}" (id INTEGER PRIMARY KEY, val TEXT, num REAL)`,
+    );
+    await driver.execute(`DELETE FROM "${RAW_TABLE}"`);
+
+    // ── 10. Raw sync inserts ───────────────────────────────────────────
+    report(`Raw sync inserts (${N_RAW})…`);
+    const syncStart = performance.now();
+    for (let i = 0; i < N_RAW; i++) {
+      driver.executeSync(
+        `INSERT INTO "${RAW_TABLE}" (val, num) VALUES (?, ?)`,
+        [`sync-${i}`, i * 1.1],
+      );
+    }
+    results.push(measure(`Raw sync INSERT (N=${N_RAW})`, N_RAW, performance.now() - syncStart));
+
+    // Clean up before async test
+    await driver.execute(`DELETE FROM "${RAW_TABLE}"`);
+
+    // ── 11. Raw async inserts ──────────────────────────────────────────
+    report(`Raw async inserts (${N_RAW})…`);
+    const asyncStart = performance.now();
+    for (let i = 0; i < N_RAW; i++) {
+      await driver.executeAsync(
+        `INSERT INTO "${RAW_TABLE}" (val, num) VALUES (?, ?)`,
+        [`async-${i}`, i * 1.1],
+      );
+    }
+    results.push(measure(`Raw async INSERT (N=${N_RAW})`, N_RAW, performance.now() - asyncStart));
+
+    // Clean up
+    await driver.execute(`DROP TABLE IF EXISTS "${RAW_TABLE}"`);
+  } else {
+    report('Skipping raw sync/async (non-SQL adapter)…');
+  }
 
   const suite: BenchmarkSuite = {
     results,

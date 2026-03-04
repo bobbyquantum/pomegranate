@@ -532,9 +532,10 @@ function MainApp() {
 //
 // Adapter is selected by the ADAPTER env var (inlined at build time via
 // babel-plugin-transform-inline-environment-variables):
-//   loki-memory     LokiAdapter, no persistence (default)
-//   op-sqlite       SQLiteAdapter + op-sqlite    (iOS / Android)
-//   native-sqlite   SQLiteAdapter + JSI bridge   (iOS / Android)
+//   loki-memory        LokiAdapter, no persistence (default)
+//   op-sqlite          SQLiteAdapter + op-sqlite sync (iOS / Android)
+//   op-sqlite-async    SQLiteAdapter + op-sqlite async (iOS / Android)
+//   native-sqlite      SQLiteAdapter + JSI bridge   (iOS / Android)
 
 function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
   const variant = process.env.ADAPTER ?? 'loki-memory';
@@ -547,7 +548,19 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
         databaseName: 'pomegranate-bare-demo',
         driver: createOpSQLiteDriver(),
       }),
-      name: 'OpSQLite',
+      name: 'OpSQLite (sync)',
+    };
+  }
+
+  if (variant === 'op-sqlite-async') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-bare-demo',
+        driver: createOpSQLiteDriver({ preferSync: false }),
+      }),
+      name: 'OpSQLite (async)',
     };
   }
 

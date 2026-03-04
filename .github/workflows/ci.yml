@@ -166,7 +166,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
+        adapter: [loki-memory, expo-sqlite, expo-sqlite-sync, op-sqlite, op-sqlite-async, native-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo
@@ -440,20 +440,8 @@ jobs:
       - name: Expo prebuild (Android)
         run: npx expo prebuild --platform android --clean
 
-      # Force-bundle JS into the debug APK (no Metro server in CI)
-      # debuggableVariants=[] makes the gradle plugin bundle JS into the APK
-      - name: Force JS bundling for debug
-        run: |
-          sed -i '/^react {/a\    debuggableVariants = []' android/app/build.gradle
-
-      # Disable dev support so the app loads the bundled JS instead of trying Metro
-      - name: Disable dev mode for CI
-        run: |
-          find android -name 'MainApplication.kt' -exec \
-            sed -i 's/getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG/getUseDeveloperSupport(): Boolean = false/' {} \;
-
-      - name: Build Android APK (debug)
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build Android APK (release)
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
         working-directory: demos/expo-todo/android
 
       # ── Install Maestro ─────────────────────────────────────────────
@@ -472,7 +460,7 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            adb install "$(find demos/expo-todo/android/app/build/outputs/apk/debug -name '*.apk' | head -1)"
+            adb install "$(find demos/expo-todo/android/app/build/outputs/apk/release -name '*.apk' | head -1)"
             adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
             sleep 20
 
