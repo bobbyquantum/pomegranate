@@ -44,7 +44,24 @@ test.describe('PomegranateDB Benchmarks', () => {
     expect(benchmarkMessages.length).toBeGreaterThanOrEqual(1);
 
     const benchmarkJson = benchmarkMessages[0];
-    const suite = JSON.parse(benchmarkJson);
+    const raw = JSON.parse(benchmarkJson);
+
+    // Normalise compact keys (r/n/o/t/a/s/ms/ad) back to full names.
+    // The compact format is used to stay under iOS os_log's ~1024-byte limit.
+    const suite = raw.results
+      ? raw // already full-key format
+      : {
+          results: (raw.r || []).map((r: Record<string, unknown>) => ({
+            name: r.n,
+            ops: r.o,
+            totalMs: r.t,
+            avgMs: r.a,
+            opsPerSec: r.s,
+          })),
+          totalMs: raw.ms,
+          adapter: raw.ad,
+          timestamp: new Date().toISOString(),
+        };
 
     // Validate the structure
     expect(suite).toHaveProperty('results');
