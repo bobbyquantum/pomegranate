@@ -390,7 +390,7 @@ function BenchmarkPanel() {
 
   return (
     <ScrollView style={styles.benchContainer} contentContainerStyle={styles.benchContent}>
-      <Text style={styles.benchTitle}>⚡ Database Benchmarks</Text>
+      <Text testID="benchmark-title" style={styles.benchTitle}>⚡ Database Benchmarks</Text>
       <Text style={styles.benchDesc}>
         Runs insert, query, update, and delete operations to measure adapter performance.
       </Text>

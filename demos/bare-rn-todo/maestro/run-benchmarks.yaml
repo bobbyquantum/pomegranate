@@ -14,7 +14,9 @@ onFlowError:
 # ── Navigate to benchmarks tab ────────────────────────────────────────────
 - tapOn:
     id: "tab-benchmarks"
-- assertVisible: "Database Benchmarks"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark-title"
 - takeScreenshot: benchmark-02-tab-opened
 
 # ── Run benchmarks ────────────────────────────────────────────────────────
