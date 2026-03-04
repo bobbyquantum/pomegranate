@@ -248,15 +248,19 @@ export class SQLiteAdapter implements StorageAdapter {
       }
     }
 
-    // Prefer the driver's native batch if available (single JSI call,
-    // single transaction — avoids per-statement round-trips).
-    if (this._driver.executeBatch) {
-      await this._driver.executeBatch(commands);
-    } else if (this._inWriteTransaction) {
+    // When already inside a writeTransaction (BEGIN IMMEDIATE), we must
+    // NOT use the driver's executeBatch — it wraps commands in its own
+    // transaction internally, and SQLite doesn't support nested transactions.
+    // That causes a deadlock / hang (the CI benchmark hang).
+    if (this._inWriteTransaction) {
       // Already inside a write transaction — just execute directly, no nesting
       for (const [sql, bindings] of commands) {
         await this._driver.execute(sql, bindings);
       }
+    } else if (this._driver.executeBatch) {
+      // Prefer the driver's native batch if available (single JSI call,
+      // single transaction — avoids per-statement round-trips).
+      await this._driver.executeBatch(commands);
     } else {
       // Fallback: loop individual execute() calls inside a transaction
       await this._driver.executeInTransaction(async () => {

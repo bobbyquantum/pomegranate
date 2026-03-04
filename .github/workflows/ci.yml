@@ -85,7 +85,17 @@ jobs:
       - name: Build expo-plugin
         run: npm run build:expo-plugin
 
+      # Cache the SQLite amalgamation (9 MB .c + .h) to avoid downloading
+      # on every run.  Key on the version embedded in the setup script.
+      - name: Cache SQLite amalgamation
+        id: cache-sqlite
+        uses: actions/cache@v4
+        with:
+          path: native/shared/sqlite3
+          key: sqlite-${{ hashFiles('scripts/setup-sqlite') }}
+
       - name: Download SQLite amalgamation
+        if: steps.cache-sqlite.outputs.cache-hit != 'true'
         run: |
           chmod +x scripts/setup-sqlite
           ./scripts/setup-sqlite
@@ -189,6 +199,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: pomegranate-tarball
+
+      # ── Cache CocoaPods global download cache ───────────────────────
+      # expo prebuild --clean wipes ios/, but the global pod cache
+      # (~/Library/Caches/CocoaPods) persists and speeds up pod install.
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: pods-${{ hashFiles('demos/expo-todo/package.json') }}
+          restore-keys: pods-
 
       # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
@@ -419,6 +439,16 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      # ── Cache Gradle downloads + build artifacts ────────────────────
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('demos/expo-todo/package.json') }}
+          restore-keys: gradle-
 
       # ── Enable KVM for hardware-accelerated emulator ────────────────
       - name: Enable KVM
