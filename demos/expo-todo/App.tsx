@@ -380,6 +380,7 @@ function BenchmarkPanel() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
   const [dbSize, setDbSize] = useState<number | null>(null);
+  const [opfsInfo, setOpfsInfo] = useState('');
 
   const refreshSize = useCallback(async () => {
     setDbSize(await getDbFileSize(db));
@@ -465,13 +466,33 @@ function BenchmarkPanel() {
         </Text>
         {Platform.OS === 'web' && (
           <Pressable
-            onPress={downloadDb}
+            onPress={async () => {
+              try {
+                const files = await listOpfsFiles();
+                const listing = files.map((f) => `${f.name} (${formatBytes(f.size)})`).join('\n');
+                setOpfsInfo(listing || 'No files in OPFS');
+                for (const { name, handle } of files) {
+                  const file = await handle.getFile();
+                  const blob = new Blob([await file.arrayBuffer()]);
+                  const a = document.createElement('a');
+                  a.href = URL.createObjectURL(blob);
+                  a.download = name.replace(/\//g, '_');
+                  a.click();
+                  URL.revokeObjectURL(a.href);
+                }
+              } catch (e: any) {
+                setOpfsInfo(`Error: ${e?.message ?? e}`);
+              }
+            }}
             style={({ pressed }) => [styles.downloadBtn, pressed && { opacity: 0.7 }]}
           >
             <Text style={styles.downloadBtnText}>⬇ Download .db</Text>
           </Pressable>
         )}
       </View>
+      {opfsInfo !== '' && (
+        <Text style={styles.opfsInfo}>{opfsInfo}</Text>
+      )}
 
       <Pressable
         testID="benchmark-btn"
@@ -1112,6 +1133,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   downloadBtnText: { fontSize: 12, fontWeight: '700', color: POMEGRANATE },
+  opfsInfo: {
+    fontSize: 11,
+    color: GRAY_500,
+    fontFamily: Platform.OS === 'web' ? 'monospace' : undefined,
+    backgroundColor: GRAY_100,
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 12,
+    lineHeight: 16,
+  },
   benchProgress: {
     fontSize: 13,
     color: GRAY_500,
