@@ -23,11 +23,11 @@ onFlowError:
 - tapOn:
     id: "benchmark-btn"
 
-# Wait for benchmarks to complete (stress test can take a while on CI)
+# Wait for benchmarks to complete (may take several minutes on CI emulators)
 - extendedWaitUntil:
     visible:
       id: "benchmark-complete"
-    timeout: 300000
+    timeout: 600000
 
 - takeScreenshot: benchmark-03-results
 
