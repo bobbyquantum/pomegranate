@@ -261,8 +261,20 @@ export async function runBenchmarks(
   };
 
   // Log structured results so CI can extract them from logcat / simulator logs.
-  // Single line with a unique prefix for easy grep extraction.
-  console.log(`[POMEGRANATE_BENCHMARK]${JSON.stringify(suite)}`);
+  // Uses compact keys to stay under iOS os_log's ~1024-byte message limit.
+  // Keys: r=results, n=name, o=ops, t=totalMs, a=avgMs, s=opsPerSec, ms=totalMs, ad=adapter
+  const compact = {
+    r: results.map((r) => ({
+      n: r.name,
+      o: r.ops,
+      t: r.totalMs,
+      a: r.avgMs,
+      s: r.opsPerSec,
+    })),
+    ms: suite.totalMs,
+    ad: suite.adapter,
+  };
+  console.log(`[POMEGRANATE_BENCHMARK]${JSON.stringify(compact)}`);
 
   return suite;
 }

@@ -362,6 +362,15 @@ jobs:
       - name: Run Maestro flows
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
+
+          # Stream simulator logs in real-time to a file.
+          # log show (post-hoc) only reads persisted logs, and React Native's
+          # console.log on Release builds may not persist at the right level.
+          # log stream captures ALL levels in real-time, so we never miss output.
+          xcrun simctl spawn "$SIMULATOR_UDID" log stream \
+            --level debug --style compact 2>/dev/null > /tmp/ios-console.log &
+          LOG_STREAM_PID=$!
+
           xcrun simctl launch "$SIMULATOR_UDID" com.pomegranatedb.todo.demo
           sleep 15
 
@@ -369,22 +378,18 @@ jobs:
           echo "=== Simulator screenshot ==="
           xcrun simctl io "$SIMULATOR_UDID" screenshot /tmp/ios-screenshot.png 2>/dev/null || true
 
-          echo "=== App console log (last 60 lines) ==="
-          xcrun simctl spawn "$SIMULATOR_UDID" log show \
-            --predicate 'subsystem == "com.pomegranatedb.todo.demo" OR process == "PomegranateDBTodo"' \
-            --last 30s --style compact 2>/dev/null | tail -60 || true
-
-          echo "=== Contents of .app bundle ==="
-          ls -la ios/build/Build/Products/Release-iphonesimulator/PomegranateDBTodo.app/ 2>/dev/null | head -20 || true
-
           maestro test maestro/
+
+          # Give the stream a moment to flush, then stop it
+          sleep 2
+          kill $LOG_STREAM_PID 2>/dev/null || true
+          wait $LOG_STREAM_PID 2>/dev/null || true
 
       - name: Extract benchmark results
         if: always()
         run: |
-          xcrun simctl spawn "$SIMULATOR_UDID" log show \
-            --predicate 'eventMessage CONTAINS "POMEGRANATE_BENCHMARK"' \
-            --last 15m --style compact 2>/dev/null \
+          # Extract from the real-time log stream captured during Maestro run
+          grep "POMEGRANATE_BENCHMARK" /tmp/ios-console.log 2>/dev/null \
             | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
           echo "=== Benchmark JSON ==="
           cat /tmp/benchmark-result.json || echo 'No benchmark data found'
@@ -589,16 +594,19 @@ jobs:
                   app = parts[0] if len(parts) > 0 else "?"         # expo / bare
                   platform = parts[1] if len(parts) > 1 else "?"    # ios / android
                   adapter = parts[2] if len(parts) > 2 else "?"     # loki-memory etc.
-                  total_ms = data.get("totalMs", "?")
-                  for r in data.get("results", []):
+
+                  # Support both compact (r/n/o/t/a/s/ms/ad) and full key formats
+                  results_raw = data.get("results") or data.get("r") or []
+                  total_ms = data.get("totalMs") or data.get("ms", "?")
+                  for r in results_raw:
                       rows.append({
                           "app": app,
                           "platform": platform,
                           "adapter": adapter,
-                          "operation": r["name"],
-                          "total_ms": r["totalMs"],
-                          "avg_ms": r["avgMs"],
-                          "ops_per_sec": r["opsPerSec"],
+                          "operation": r.get("name") or r.get("n", "?"),
+                          "total_ms": r.get("totalMs") or r.get("t", 0),
+                          "avg_ms": r.get("avgMs") or r.get("a", 0),
+                          "ops_per_sec": r.get("opsPerSec") or r.get("s", 0),
                       })
               except Exception as e:
                   print(f"Warning: could not parse {path}: {e}", file=sys.stderr)

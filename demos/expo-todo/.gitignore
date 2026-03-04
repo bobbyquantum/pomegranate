@@ -8,4 +8,4 @@ android/
 test-results/
 playwright-report/
 benchmark-results/
-demos/expo-todo/benchmark-*.png
+benchmark-*.png
