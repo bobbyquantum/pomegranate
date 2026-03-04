@@ -82,6 +82,7 @@ export class SQLiteAdapter implements StorageAdapter {
   private _databaseName: string;
   private _encryption?: EncryptionConfig;
   private _initialized = false;
+  private _inWriteTransaction = false;
 
   constructor(config: SQLiteAdapterConfig) {
     this._databaseName = config.databaseName;
@@ -180,6 +181,22 @@ export class SQLiteAdapter implements StorageAdapter {
     await this._driver.execute(sql, bindings);
   }
 
+  // ─── Write Transaction ──────────────────────────────────────────────
+
+  async writeTransaction(fn: () => Promise<void>): Promise<void> {
+    if (this._inWriteTransaction) {
+      // Already inside a transaction — just run the function directly
+      await fn();
+      return;
+    }
+    this._inWriteTransaction = true;
+    try {
+      await this._driver.executeInTransaction(fn);
+    } finally {
+      this._inWriteTransaction = false;
+    }
+  }
+
   // ─── Batch ──────────────────────────────────────────────────────────
 
   async batch(operations: BatchOperation[]): Promise<void> {
@@ -215,6 +232,11 @@ export class SQLiteAdapter implements StorageAdapter {
     // single transaction — avoids per-statement round-trips).
     if (this._driver.executeBatch) {
       await this._driver.executeBatch(commands);
+    } else if (this._inWriteTransaction) {
+      // Already inside a write transaction — just execute directly, no nesting
+      for (const [sql, bindings] of commands) {
+        await this._driver.execute(sql, bindings);
+      }
     } else {
       // Fallback: loop individual execute() calls inside a transaction
       await this._driver.executeInTransaction(async () => {

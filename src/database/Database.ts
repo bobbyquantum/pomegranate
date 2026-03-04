@@ -157,8 +157,17 @@ export class Database implements ModelDatabaseRef {
         this._isInWriter = true;
         this._events$.next({ type: 'write_started' });
         try {
-          const result = await fn();
-          resolve(result);
+          let result: T;
+          if (this._adapter.writeTransaction) {
+            // Wrap all mutations in a single database transaction
+            // (one BEGIN/COMMIT = one fsync instead of per-statement autocommit)
+            await this._adapter.writeTransaction(async () => {
+              result = await fn();
+            });
+          } else {
+            result = await fn();
+          }
+          resolve(result!);
         } catch (error) {
           reject(error);
         } finally {

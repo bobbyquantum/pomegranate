@@ -67,6 +67,14 @@ export interface StorageAdapter {
   /** Execute a batch of operations atomically. */
   batch(operations: BatchOperation[]): Promise<void>;
 
+  /**
+   * Optional: wrap a set of operations in a write transaction.
+   * When provided, `db.write()` will call this so that all individual
+   * inserts/updates/deletes within a single write() share ONE database
+   * transaction (one fsync) instead of each being autocommit.
+   */
+  writeTransaction?(fn: () => Promise<void>): Promise<void>;
+
   /** Full-text search. */
   search(descriptor: SearchDescriptor): Promise<{ records: RawRecord[]; total: number }>;
 

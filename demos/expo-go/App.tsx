@@ -32,6 +32,7 @@ import {
   useCollection,
   useCount,
   SQLiteAdapter,
+  LokiAdapter,
   m,
   Model,
 } from 'pomegranate-db';
@@ -314,7 +315,7 @@ function Header() {
         </View>
       </View>
       <View style={styles.adapterBadge}>
-        <Text style={styles.adapterBadgeText}>Expo SQLite (Expo Go)</Text>
+        <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
       </View>
     </View>
   );
@@ -336,7 +337,7 @@ function BenchmarkPanel() {
       const result = await runBenchmarks(
         db,
         Todo,
-        'expo-sqlite',
+        ADAPTER_NAME,
         setProgress,
       );
       setSuite(result);
@@ -521,12 +522,57 @@ function MainApp() {
   );
 }
 
-// ─── Database (expo-sqlite — works in Expo Go!) ────────────────────────────
+// ─── Database setup ────────────────────────────────────────────────────────
+//
+// Adapter is selected by EXPO_PUBLIC_ADAPTER env var:
+//   expo-sqlite       SQLiteAdapter + expo-sqlite async (default — works in Expo Go)
+//   expo-sqlite-sync  SQLiteAdapter + expo-sqlite sync JSI (native only)
+//   loki-memory       LokiAdapter, no persistence
+//   loki-idb          LokiAdapter + IndexedDB (web only)
 
-const adapter = new SQLiteAdapter({
-  databaseName: 'pomegranate-expo-go-demo',
-  driver: createExpoSQLiteDriver(),
-});
+function createAdapter(): { adapter: SQLiteAdapter | LokiAdapter; name: string } {
+  const variant = process.env.EXPO_PUBLIC_ADAPTER ?? 'expo-sqlite';
+
+  if (variant === 'expo-sqlite-sync') {
+    return {
+      adapter: new SQLiteAdapter({
+        databaseName: 'pomegranate-expo-go-demo',
+        driver: createExpoSQLiteDriver({ preferSync: true }),
+      }),
+      name: 'ExpoSQLite (sync)',
+    };
+  }
+
+  if (variant === 'loki-idb') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
+    return {
+      adapter: new LokiAdapter({
+        databaseName: 'pomegranate-expo-go-demo',
+        persistenceAdapter: new IncrementalIDBAdapter(),
+      }),
+      name: 'Loki + IndexedDB',
+    };
+  }
+
+  if (variant === 'loki-memory') {
+    return {
+      adapter: new LokiAdapter({ databaseName: 'pomegranate-expo-go-demo' }),
+      name: 'Loki (memory)',
+    };
+  }
+
+  // Default: expo-sqlite async
+  return {
+    adapter: new SQLiteAdapter({
+      databaseName: 'pomegranate-expo-go-demo',
+      driver: createExpoSQLiteDriver(),
+    }),
+    name: 'ExpoSQLite (async)',
+  };
+}
+
+const { adapter, name: ADAPTER_NAME } = createAdapter();
 
 export default function App() {
   return (

@@ -5,6 +5,10 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
+    "start:expo-sqlite": "EXPO_PUBLIC_ADAPTER=expo-sqlite expo start --clear",
+    "start:expo-sqlite-sync": "EXPO_PUBLIC_ADAPTER=expo-sqlite-sync expo start --clear",
+    "start:loki-memory": "EXPO_PUBLIC_ADAPTER=loki-memory expo start --clear",
+    "start:loki-idb": "EXPO_PUBLIC_ADAPTER=loki-idb expo start --web --clear",
     "prebuild": "cd ../.. && npm run build && npm pack",
     "reinstall": "npm run prebuild && npm install ../../pomegranate-db-0.1.0.tgz"
   },
@@ -15,8 +19,10 @@
     "expo-status-bar": "~55.0.4",
     "pomegranate-db": "file:../../pomegranate-db-0.1.0.tgz",
     "react": "19.2.0",
+    "react-dom": "19.2.0",
     "react-native": "0.83.2",
-    "react-native-safe-area-context": "~5.4.0"
+    "react-native-safe-area-context": "~5.4.0",
+    "react-native-web": "^0.21.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
