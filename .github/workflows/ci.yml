@@ -167,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [loki-memory, expo-sqlite, expo-sqlite-sync, op-sqlite, op-sqlite-async, native-sqlite]
+        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo
@@ -398,7 +398,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        adapter: [loki-memory, expo-sqlite, expo-sqlite-sync, op-sqlite, op-sqlite-async, native-sqlite]
+        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
     defaults:
       run:
         working-directory: demos/expo-todo
