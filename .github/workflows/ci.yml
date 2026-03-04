@@ -491,7 +491,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2.33.0
         with:
           api-level: 29
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 900
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
