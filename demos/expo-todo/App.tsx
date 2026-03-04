@@ -347,28 +347,60 @@ async function listOpfsFiles(): Promise<{ name: string; handle: any; size: numbe
   return files;
 }
 
-/** Download all OPFS files as a single zip-like bundle, or individually */
-async function downloadDb(): Promise<void> {
+// "SQLite format 3\0" magic header (first 16 bytes of every SQLite file)
+const SQLITE_MAGIC = new Uint8Array([0x53,0x51,0x4c,0x69,0x74,0x65,0x20,0x66,0x6f,0x72,0x6d,0x61,0x74,0x20,0x33,0x00]);
+
+function findSqliteOffset(buf: ArrayBuffer): number {
+  const u8 = new Uint8Array(buf);
+  outer: for (let i = 0; i <= u8.length - SQLITE_MAGIC.length; i++) {
+    for (let j = 0; j < SQLITE_MAGIC.length; j++) {
+      if (u8[i + j] !== SQLITE_MAGIC[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+/**
+ * Extract and download the SQLite database from OPFS.
+ * wa-sqlite's OPFS VFS stores pages with a metadata prefix.
+ * We find "SQLite format 3" in the largest file and slice from there.
+ */
+async function extractAndDownloadDb(
+  setInfo: (s: string) => void,
+): Promise<void> {
   if (Platform.OS !== 'web') return;
   try {
     const files = await listOpfsFiles();
-    console.log('[OPFS] files:', files.map((f) => `${f.name} (${f.size})`));
-    if (files.length === 0) {
-      (window as any).alert('No files found in OPFS'); // eslint-disable-line no-alert
+    const listing = files.map((f) => `${f.name} (${formatBytes(f.size)})`).join('\n');
+
+    const sorted = [...files].sort((a, b) => b.size - a.size);
+    if (sorted.length === 0) {
+      setInfo('No files in OPFS');
       return;
     }
-    // Download each file
-    for (const { name, handle } of files) {
-      const file = await handle.getFile();
-      const blob = new Blob([await file.arrayBuffer()]);
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name.replace(/\//g, '_');
-      a.click();
-      URL.revokeObjectURL(a.href);
+
+    const main = sorted[0];
+    const file = await main.handle.getFile();
+    const buf = await file.arrayBuffer();
+    const offset = findSqliteOffset(buf);
+
+    if (offset < 0) {
+      setInfo(`${listing}\n\nNo SQLite header found in ${main.name}`);
+      return;
     }
-  } catch (e) {
-    console.error('Download failed', e);
+
+    const dbBytes = buf.slice(offset);
+    const blob = new Blob([dbBytes], { type: 'application/x-sqlite3' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'pomegranate.db';
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+    setInfo(`${listing}\n\nExtracted ${formatBytes(dbBytes.byteLength)} from ${main.name} (offset ${offset})`);
+  } catch (e: any) {
+    setInfo(`Error: ${e?.message ?? e}`);
   }
 }
 
@@ -466,24 +498,7 @@ function BenchmarkPanel() {
         </Text>
         {Platform.OS === 'web' && (
           <Pressable
-            onPress={async () => {
-              try {
-                const files = await listOpfsFiles();
-                const listing = files.map((f) => `${f.name} (${formatBytes(f.size)})`).join('\n');
-                setOpfsInfo(listing || 'No files in OPFS');
-                for (const { name, handle } of files) {
-                  const file = await handle.getFile();
-                  const blob = new Blob([await file.arrayBuffer()]);
-                  const a = document.createElement('a');
-                  a.href = URL.createObjectURL(blob);
-                  a.download = name.replace(/\//g, '_');
-                  a.click();
-                  URL.revokeObjectURL(a.href);
-                }
-              } catch (e: any) {
-                setOpfsInfo(`Error: ${e?.message ?? e}`);
-              }
-            }}
+            onPress={() => extractAndDownloadDb(setOpfsInfo)}
             style={({ pressed }) => [styles.downloadBtn, pressed && { opacity: 0.7 }]}
           >
             <Text style={styles.downloadBtnText}>⬇ Download .db</Text>
