@@ -201,9 +201,14 @@ export async function runBenchmarks(
   // benchmarking purposes.
 
   const driver = (db as any)?._adapter?._driver;
-  const hasSyncAsync = driver?.executeSync && driver?.executeAsync;
+  const hasAsyncRaw = !!driver?.executeAsync;
+  // On web (wa-sqlite), executeSync exists but internally requires
+  // SharedArrayBuffer for synchronous main-thread↔worker calls.
+  // Only attempt sync benchmarks when SharedArrayBuffer is available.
+  const hasSyncRaw =
+    !!driver?.executeSync && typeof globalThis.SharedArrayBuffer !== 'undefined';
 
-  if (hasSyncAsync) {
+  if (hasAsyncRaw || hasSyncRaw) {
     const N_RAW = 500;
     const RAW_TABLE = '__pomegranate_bench_raw';
 
@@ -214,18 +219,22 @@ export async function runBenchmarks(
     await driver.execute(`DELETE FROM "${RAW_TABLE}"`);
 
     // ── 10. Raw sync inserts ───────────────────────────────────────────
-    report(`Raw sync inserts (${N_RAW})…`);
-    const syncStart = performance.now();
-    for (let i = 0; i < N_RAW; i++) {
-      driver.executeSync(
-        `INSERT INTO "${RAW_TABLE}" (val, num) VALUES (?, ?)`,
-        [`sync-${i}`, i * 1.1],
-      );
-    }
-    results.push(measure(`Raw sync INSERT (N=${N_RAW})`, N_RAW, performance.now() - syncStart));
+    if (hasSyncRaw) {
+      report(`Raw sync inserts (${N_RAW})…`);
+      const syncStart = performance.now();
+      for (let i = 0; i < N_RAW; i++) {
+        driver.executeSync(
+          `INSERT INTO "${RAW_TABLE}" (val, num) VALUES (?, ?)`,
+          [`sync-${i}`, i * 1.1],
+        );
+      }
+      results.push(measure(`Raw sync INSERT (N=${N_RAW})`, N_RAW, performance.now() - syncStart));
 
-    // Clean up before async test
-    await driver.execute(`DELETE FROM "${RAW_TABLE}"`);
+      // Clean up before async test
+      await driver.execute(`DELETE FROM "${RAW_TABLE}"`);
+    } else {
+      report('Skipping raw sync (SharedArrayBuffer not available on web)…');
+    }
 
     // ── 11. Raw async inserts ──────────────────────────────────────────
     report(`Raw async inserts (${N_RAW})…`);
