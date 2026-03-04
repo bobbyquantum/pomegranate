@@ -2,6 +2,8 @@ appId: com.barerntodo
 name: Full CRUD flow
 onFlowError:
   - takeScreenshot: full-crud-ERROR
+env:
+  ADAPTER: "loki-memory"
 ---
 - stopApp
 - launchApp:
@@ -11,12 +13,21 @@ onFlowError:
 - assertVisible: "PomegranateDB"
 - takeScreenshot: full-crud-01-app-loaded
 
+# ── Select adapter via picker ─────────────────────────────────────────────
+- tapOn:
+    id: "adapter-option-${ADAPTER}"
+- extendedWaitUntil:
+    visible:
+      id: "tab-todos"
+    timeout: 30000
+- takeScreenshot: full-crud-02-adapter-selected
+
 # ── Add a todo ───────────────────────────────────────────────────────────
 - tapOn:
     id: "todo-input"
 - inputText: "Maestro test todo"
 - waitForAnimationToEnd
-- takeScreenshot: full-crud-02-text-entered
+- takeScreenshot: full-crud-03-text-entered
 
 # Tap the add button (more reliable than pressKey: Enter across API levels)
 - tapOn:
@@ -27,7 +38,7 @@ onFlowError:
     visible:
       id: "todo-item"
     timeout: 15000
-- takeScreenshot: full-crud-03-todo-created
+- takeScreenshot: full-crud-04-todo-created
 
 # ── Toggle it complete ─────────────────────────────────────────────────────
 - extendedWaitUntil:
@@ -37,7 +48,7 @@ onFlowError:
 - tapOn:
     id: "todo-checkbox"
     index: 0
-- takeScreenshot: full-crud-04-toggled
+- takeScreenshot: full-crud-05-toggled
 
 # ── Seed sample data ──────────────────────────────────────────────────────
 - tapOn:
@@ -45,14 +56,14 @@ onFlowError:
 
 # Wait for seed to render
 - waitForAnimationToEnd
-- takeScreenshot: full-crud-05-seeded
+- takeScreenshot: full-crud-06-seeded
 
 # ── Clear completed ───────────────────────────────────────────────────────
 - tapOn:
     id: "clear-completed-btn"
-- takeScreenshot: full-crud-06-cleared
+- takeScreenshot: full-crud-07-cleared
 
 # ── Verify stats are visible ──────────────────────────────────────────────
 - assertVisible:
     id: "stats-text"
-- takeScreenshot: full-crud-07-done
+- takeScreenshot: full-crud-08-done

@@ -3,7 +3,7 @@
  *
  * Demonstrates: schema, models, CRUD, live queries, hooks, reactive observation.
  */
-import React, { useState, useCallback, useRef, useEffect, Suspense } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect, Suspense } from 'react';
 import {
   Text,
   View,
@@ -40,6 +40,7 @@ import {
   POMEGRANATE,
   GRAY_400,
 } from '../shared/styles';
+import { AdapterPicker, type AdapterOption } from '../shared/AdapterPicker';
 
 type Filter = 'all' | 'active' | 'completed';
 
@@ -397,7 +398,7 @@ async function extractAndDownloadDb(
 
 // ─── Benchmark Panel ───────────────────────────────────────────────────────
 
-function BenchmarkPanel() {
+function BenchmarkPanel({ adapterName }: { adapterName: string }) {
   const db = useDatabase();
   const [suite, setSuite] = useState<BenchmarkSuite | null>(null);
   const [running, setRunning] = useState(false);
@@ -420,7 +421,7 @@ function BenchmarkPanel() {
       const result = await runBenchmarks(
         db,
         Todo,
-        ADAPTER_NAME,
+        adapterName,
         setProgress,
       );
       setSuite(result);
@@ -585,7 +586,7 @@ function BenchmarkPanel() {
 
 // ─── Header ────────────────────────────────────────────────────────────────
 
-function Header() {
+function Header({ adapterName }: { adapterName: string }) {
   return (
     <View style={styles.header}>
       <View style={styles.headerTop}>
@@ -598,7 +599,7 @@ function Header() {
         </View>
       </View>
       <View style={styles.adapterBadge}>
-        <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
+        <Text style={styles.adapterBadgeText}>{adapterName}</Text>
       </View>
     </View>
   );
@@ -608,14 +609,11 @@ function Header() {
 
 type Tab = 'todos' | 'benchmarks';
 
-function MainApp() {
+function MainContent({ adapterName }: { adapterName: string }) {
   const [tab, setTab] = useState<Tab>('todos');
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      <Header />
-
+    <>
       {/* Tab bar */}
       <View style={styles.tabBar}>
         <Pressable
@@ -641,30 +639,34 @@ function MainApp() {
           <BottomActions />
         </>
       ) : (
-        <BenchmarkPanel />
+        <BenchmarkPanel adapterName={adapterName} />
       )}
-    </SafeAreaView>
+    </>
   );
 }
 
-// ─── Database setup (stable reference, outside render) ─────────────────────
+// ─── Adapter configuration ─────────────────────────────────────────────────
 //
-// Adapter is selected by the EXPO_PUBLIC_ADAPTER env var:
-//   loki-idb           LokiAdapter + IndexedDB (web default)
-//   loki-memory        LokiAdapter, no persistence (native default)
-//   expo-sqlite        SQLiteAdapter + expo-sqlite async (iOS / Android / web)
-//   expo-sqlite-sync   SQLiteAdapter + expo-sqlite sync JSI (iOS / Android only)
-//   op-sqlite          SQLiteAdapter + op-sqlite sync (iOS / Android only)
-//   op-sqlite-async    SQLiteAdapter + op-sqlite async (iOS / Android only)
-//   native-sqlite      SQLiteAdapter + JSI bridge (iOS / Android only)
+// Each demo app defines the adapters it supports. The picker filters by
+// platform so users only see options that work on the current device.
 
-function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
-  const variant =
-    process.env.EXPO_PUBLIC_ADAPTER ??
-    (Platform.OS === 'web' ? 'loki-idb' : 'loki-memory');
+const ADAPTER_OPTIONS: AdapterOption[] = [
+  { variant: 'expo-sqlite', name: 'ExpoSQLite (async)', label: 'Expo SQL' },
+  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
+  { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL', nativeOnly: true },
+  { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async', nativeOnly: true },
+  { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI', nativeOnly: true },
+  { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
+  { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
+];
+
+const DEFAULT_VARIANT =
+  process.env.EXPO_PUBLIC_ADAPTER ??
+  (Platform.OS === 'web' ? 'loki-idb' : 'loki-memory');
+
+function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
 
   if (variant === 'expo-sqlite') {
-    // Requires expo-sqlite: npx expo install expo-sqlite
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
     return {
@@ -677,7 +679,6 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
   }
 
   if (variant === 'expo-sqlite-sync') {
-    // Sync JSI path — faster on native, no web support
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
     return {
@@ -690,7 +691,6 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
   }
 
   if (variant === 'op-sqlite') {
-    // Requires @op-engineering/op-sqlite (native only, no web)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
     return {
@@ -703,7 +703,6 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
   }
 
   if (variant === 'op-sqlite-async') {
-    // Async path — dispatches to worker thread, slightly slower per-op
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
     return {
@@ -716,7 +715,6 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
   }
 
   if (variant === 'native-sqlite') {
-    // PomegranateDB's own JSI C++ bridge (native only, no web)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createNativeSQLiteDriver } = require('pomegranate-db/native-sqlite');
     return {
@@ -740,35 +738,40 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
     };
   }
 
-  // loki-memory (native default): pure in-memory, works on all platforms
+  // loki-memory (default): pure in-memory, works on all platforms
   return {
     adapter: new LokiAdapter({ databaseName: 'pomegranate-demo' }),
     name: 'Loki (memory)',
   };
 }
 
-const { adapter, name: ADAPTER_NAME } = createAdapter();
-
 export default function App() {
+  const [variant, setVariant] = useState(DEFAULT_VARIANT);
+  const { adapter, name: adapterName } = useMemo(() => createAdapter(variant), [variant]);
+
   return (
     <SafeAreaProvider>
-      <Suspense
-        fallback={
-          <View style={styles.splash}>
-            <Image
-              source={require('./assets/logo.png')}
-              style={styles.splashLogo}
-              resizeMode="contain"
-            />
-            <ActivityIndicator size="large" color={POMEGRANATE} style={{ marginTop: 24 }} />
-            <Text style={styles.splashText}>Loading database…</Text>
-          </View>
-        }
-      >
-        <DatabaseSuspenseProvider adapter={adapter} models={[Todo]}>
-          <MainApp />
-        </DatabaseSuspenseProvider>
-      </Suspense>
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="light" />
+        <Header adapterName={adapterName} />
+        <AdapterPicker
+          options={ADAPTER_OPTIONS}
+          selected={variant}
+          onSelect={setVariant}
+        />
+        <Suspense
+          fallback={
+            <View style={styles.loadingContent}>
+              <ActivityIndicator size="large" color={POMEGRANATE} />
+              <Text style={styles.loadingText}>Loading database…</Text>
+            </View>
+          }
+        >
+          <DatabaseSuspenseProvider key={variant} adapter={adapter} models={[Todo]}>
+            <MainContent adapterName={adapterName} />
+          </DatabaseSuspenseProvider>
+        </Suspense>
+      </SafeAreaView>
     </SafeAreaProvider>
   );
 }

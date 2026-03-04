@@ -4,7 +4,7 @@
  * Zero Expo dependencies. Demonstrates: schema, models, CRUD, live queries,
  * hooks, reactive observation using only React Native + PomegranateDB.
  */
-import React, { useState, useCallback, useRef, Suspense } from 'react';
+import React, { useState, useCallback, useRef, useMemo, Suspense } from 'react';
 import {
   Text,
   View,
@@ -17,6 +17,7 @@ import {
   Keyboard,
   StatusBar,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -40,6 +41,7 @@ import {
   POMEGRANATE,
   GRAY_400,
 } from '../shared/styles';
+import { AdapterPicker, type AdapterOption } from '../shared/AdapterPicker';
 
 type Filter = 'all' | 'active' | 'completed';
 
@@ -298,7 +300,7 @@ function BottomActions() {
 
 // ─── Benchmark Panel ───────────────────────────────────────────────────────
 
-function BenchmarkPanel() {
+function BenchmarkPanel({ adapterName }: { adapterName: string }) {
   const db = useDatabase();
   const [suite, setSuite] = useState<BenchmarkSuite | null>(null);
   const [running, setRunning] = useState(false);
@@ -312,7 +314,7 @@ function BenchmarkPanel() {
       const result = await runBenchmarks(
         db,
         Todo,
-        ADAPTER_NAME,
+        adapterName,
         setProgress,
       );
       setSuite(result);
@@ -456,7 +458,7 @@ function BenchmarkPanel() {
 
 // ─── Header ────────────────────────────────────────────────────────────────
 
-function Header() {
+function Header({ adapterName }: { adapterName: string }) {
   return (
     <View style={styles.header}>
       <View style={styles.headerTop}>
@@ -469,7 +471,7 @@ function Header() {
         </View>
       </View>
       <View style={styles.adapterBadge}>
-        <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
+        <Text style={styles.adapterBadgeText}>{adapterName}</Text>
       </View>
     </View>
   );
@@ -479,14 +481,11 @@ function Header() {
 
 type Tab = 'todos' | 'benchmarks';
 
-function MainApp() {
+function MainContent({ adapterName }: { adapterName: string }) {
   const [tab, setTab] = useState<Tab>('todos');
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={POMEGRANATE} />
-      <Header />
-
+    <>
       {/* Tab bar */}
       <View style={styles.tabBar}>
         <Pressable
@@ -512,23 +511,24 @@ function MainApp() {
           <BottomActions />
         </>
       ) : (
-        <BenchmarkPanel />
+        <BenchmarkPanel adapterName={adapterName} />
       )}
-    </SafeAreaView>
+    </>
   );
 }
 
-// ─── Database setup (stable reference, outside render) ─────────────────────
-//
-// Adapter is selected by the ADAPTER env var (inlined at build time via
-// babel-plugin-transform-inline-environment-variables):
-//   loki-memory        LokiAdapter, no persistence (default)
-//   op-sqlite          SQLiteAdapter + op-sqlite sync (iOS / Android)
-//   op-sqlite-async    SQLiteAdapter + op-sqlite async (iOS / Android)
-//   native-sqlite      SQLiteAdapter + JSI bridge   (iOS / Android)
+// ─── Adapter configuration ─────────────────────────────────────────────────
 
-function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
-  const variant = process.env.ADAPTER ?? 'loki-memory';
+const ADAPTER_OPTIONS: AdapterOption[] = [
+  { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL' },
+  { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async' },
+  { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI' },
+  { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
+];
+
+const DEFAULT_VARIANT = process.env.ADAPTER ?? 'loki-memory';
+
+function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
 
   if (variant === 'op-sqlite') {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -573,24 +573,33 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
   };
 }
 
-const { adapter, name: ADAPTER_NAME } = createAdapter();
-
 export default function App() {
+  const [variant, setVariant] = useState(DEFAULT_VARIANT);
+  const { adapter, name: adapterName } = useMemo(() => createAdapter(variant), [variant]);
+
   return (
     <SafeAreaProvider>
-      <Suspense
-        fallback={
-          <View style={styles.splash}>
-            <Text style={styles.splashEmoji}>🔴</Text>
-            <ActivityIndicator size="large" color={POMEGRANATE} style={{ marginTop: 24 }} />
-            <Text style={styles.splashText}>Loading database…</Text>
-          </View>
-        }
-      >
-        <DatabaseSuspenseProvider adapter={adapter} models={[Todo]}>
-          <MainApp />
-        </DatabaseSuspenseProvider>
-      </Suspense>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={POMEGRANATE} />
+        <Header adapterName={adapterName} />
+        <AdapterPicker
+          options={ADAPTER_OPTIONS}
+          selected={variant}
+          onSelect={setVariant}
+        />
+        <Suspense
+          fallback={
+            <View style={styles.loadingContent}>
+              <ActivityIndicator size="large" color={POMEGRANATE} />
+              <Text style={styles.loadingText}>Loading database…</Text>
+            </View>
+          }
+        >
+          <DatabaseSuspenseProvider key={variant} adapter={adapter} models={[Todo]}>
+            <MainContent adapterName={adapterName} />
+          </DatabaseSuspenseProvider>
+        </Suspense>
+      </SafeAreaView>
     </SafeAreaProvider>
   );
 }

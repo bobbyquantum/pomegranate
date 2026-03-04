@@ -9,7 +9,7 @@
  *   npm install
  *   npx expo start          # scan QR with Expo Go on your phone
  */
-import React, { useState, useCallback, useEffect, Suspense } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, Suspense } from 'react';
 import {
   Text,
   View,
@@ -47,6 +47,7 @@ import {
   POMEGRANATE,
   GRAY_400,
 } from '../shared/styles';
+import { AdapterPicker, type AdapterOption } from '../shared/AdapterPicker';
 
 // ─── Schema & Model ────────────────────────────────────────────────────────
 
@@ -294,7 +295,7 @@ function BottomActions() {
 
 // ─── Header ────────────────────────────────────────────────────────────────
 
-function Header() {
+function Header({ adapterName }: { adapterName: string }) {
   return (
     <View style={styles.header}>
       <View style={styles.headerTop}>
@@ -307,7 +308,7 @@ function Header() {
         </View>
       </View>
       <View style={styles.adapterBadge}>
-        <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
+        <Text style={styles.adapterBadgeText}>{adapterName}</Text>
       </View>
     </View>
   );
@@ -417,7 +418,7 @@ async function extractAndDownloadDb(
 
 // ─── Benchmark Panel ───────────────────────────────────────────────────────
 
-function BenchmarkPanel() {
+function BenchmarkPanel({ adapterName }: { adapterName: string }) {
   const db = useDatabase();
   const [suite, setSuite] = useState<BenchmarkSuite | null>(null);
   const [running, setRunning] = useState(false);
@@ -440,7 +441,7 @@ function BenchmarkPanel() {
       const result = await runBenchmarks(
         db,
         Todo,
-        ADAPTER_NAME,
+        adapterName,
         setProgress,
       );
       setSuite(result);
@@ -607,14 +608,11 @@ function BenchmarkPanel() {
 
 type Tab = 'todos' | 'benchmarks';
 
-function MainApp() {
+function MainContent({ adapterName }: { adapterName: string }) {
   const [tab, setTab] = useState<Tab>('todos');
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      <Header />
-
+    <>
       {/* Tab bar */}
       <View style={styles.tabBar}>
         <Pressable
@@ -640,22 +638,24 @@ function MainApp() {
           <BottomActions />
         </>
       ) : (
-        <BenchmarkPanel />
+        <BenchmarkPanel adapterName={adapterName} />
       )}
-    </SafeAreaView>
+    </>
   );
 }
 
-// ─── Database setup ────────────────────────────────────────────────────────
-//
-// Adapter is selected by EXPO_PUBLIC_ADAPTER env var:
-//   expo-sqlite       SQLiteAdapter + expo-sqlite async (default — works in Expo Go)
-//   expo-sqlite-sync  SQLiteAdapter + expo-sqlite sync JSI (native only)
-//   loki-memory       LokiAdapter, no persistence
-//   loki-idb          LokiAdapter + IndexedDB (web only)
+// ─── Adapter configuration ─────────────────────────────────────────────────
 
-function createAdapter(): { adapter: SQLiteAdapter | LokiAdapter; name: string } {
-  const variant = process.env.EXPO_PUBLIC_ADAPTER ?? 'expo-sqlite';
+const ADAPTER_OPTIONS: AdapterOption[] = [
+  { variant: 'expo-sqlite', name: 'ExpoSQLite (async)', label: 'Expo SQL' },
+  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
+  { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
+  { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
+];
+
+const DEFAULT_VARIANT = process.env.EXPO_PUBLIC_ADAPTER ?? 'expo-sqlite';
+
+function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter; name: string } {
 
   if (variant === 'expo-sqlite-sync') {
     return {
@@ -696,24 +696,33 @@ function createAdapter(): { adapter: SQLiteAdapter | LokiAdapter; name: string }
   };
 }
 
-const { adapter, name: ADAPTER_NAME } = createAdapter();
-
 export default function App() {
+  const [variant, setVariant] = useState(DEFAULT_VARIANT);
+  const { adapter, name: adapterName } = useMemo(() => createAdapter(variant), [variant]);
+
   return (
     <SafeAreaProvider>
-      <Suspense
-        fallback={
-          <View style={styles.splash}>
-            <Image source={require('./assets/logo.png')} style={styles.splashLogo} resizeMode="contain" />
-            <ActivityIndicator size="large" color={POMEGRANATE} style={{ marginTop: 24 }} />
-            <Text style={styles.splashText}>Loading database…</Text>
-          </View>
-        }
-      >
-        <DatabaseSuspenseProvider adapter={adapter} models={[Todo]}>
-          <MainApp />
-        </DatabaseSuspenseProvider>
-      </Suspense>
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="light" />
+        <Header adapterName={adapterName} />
+        <AdapterPicker
+          options={ADAPTER_OPTIONS}
+          selected={variant}
+          onSelect={setVariant}
+        />
+        <Suspense
+          fallback={
+            <View style={styles.loadingContent}>
+              <ActivityIndicator size="large" color={POMEGRANATE} />
+              <Text style={styles.loadingText}>Loading database…</Text>
+            </View>
+          }
+        >
+          <DatabaseSuspenseProvider key={variant} adapter={adapter} models={[Todo]}>
+            <MainContent adapterName={adapterName} />
+          </DatabaseSuspenseProvider>
+        </Suspense>
+      </SafeAreaView>
     </SafeAreaProvider>
   );
 }

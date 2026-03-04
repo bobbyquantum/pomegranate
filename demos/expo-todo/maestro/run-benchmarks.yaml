@@ -2,6 +2,8 @@ appId: com.pomegranatedb.todo.demo
 name: Run benchmarks
 onFlowError:
   - takeScreenshot: benchmark-ERROR
+env:
+  ADAPTER: "loki-memory"
 ---
 - stopApp
 - launchApp:
@@ -11,13 +13,22 @@ onFlowError:
 - assertVisible: "PomegranateDB"
 - takeScreenshot: benchmark-01-app-loaded
 
+# ── Select adapter via picker ─────────────────────────────────────────────
+- tapOn:
+    id: "adapter-option-${ADAPTER}"
+- extendedWaitUntil:
+    visible:
+      id: "tab-todos"
+    timeout: 30000
+- takeScreenshot: benchmark-02-adapter-selected
+
 # ── Navigate to benchmarks tab ────────────────────────────────────────────
 - tapOn:
     id: "tab-benchmarks"
 - waitForAnimationToEnd
 - assertVisible:
     id: "benchmark-title"
-- takeScreenshot: benchmark-02-tab-opened
+- takeScreenshot: benchmark-03-tab-opened
 
 # ── Run benchmarks ────────────────────────────────────────────────────────
 - tapOn:
@@ -29,9 +40,9 @@ onFlowError:
       id: "benchmark-complete"
     timeout: 600000
 
-- takeScreenshot: benchmark-03-results
+- takeScreenshot: benchmark-04-results
 
 # ── Verify results are displayed ──────────────────────────────────────────
 - assertVisible:
     id: "benchmark-summary"
-- takeScreenshot: benchmark-04-done
+- takeScreenshot: benchmark-05-done

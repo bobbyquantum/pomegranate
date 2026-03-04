@@ -166,24 +166,20 @@ jobs:
           path: demos/expo-todo/benchmark-results/benchmark-result.json
           retention-days: 7
 
-  # ─── iOS Simulator e2e (Maestro) ────────────────────────────────────────────
-  #
-  # Builds the Expo demo app for iOS Simulator and runs Maestro flows.
 
-  e2e-ios:
-    name: "iOS e2e · ${{ matrix.adapter }}"
+  # ─── Build iOS app (shared by all iOS e2e jobs) ──────────────────────────
+  #
+  # All adapters are bundled into the same .app — the runtime picker selects
+  # which one to use.  Build once, test many.
+
+  build-ios:
+    name: Build iOS simulator app
     needs: [pack-library]
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: demos/expo-todo
-    timeout-minutes: 45
-    env:
-      EXPO_PUBLIC_ADAPTER: ${{ matrix.adapter }}
 
     steps:
       - uses: actions/checkout@v4
@@ -194,15 +190,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
         uses: actions/download-artifact@v4
         with:
           name: pomegranate-tarball
 
-      # ── Cache CocoaPods global download cache ───────────────────────
-      # expo prebuild --clean wipes ios/, but the global pod cache
-      # (~/Library/Caches/CocoaPods) persists and speeds up pod install.
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
@@ -210,26 +202,15 @@ jobs:
           key: pods-${{ hashFiles('demos/expo-todo/package.json') }}
           restore-keys: pods-
 
-      # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
         run: npm install --no-package-lock
 
       - name: Expo prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
 
-      # ExpoModulesCore 55.x (swift_version='6.0') uses @MainActor
-      # conformance annotations (Swift 6-only syntax) AND has concurrency
-      # violations that are hard errors in Swift 6 mode (where
-      # SWIFT_STRICT_CONCURRENCY=minimal is ignored by design).
-      #
-      # Fix: patch out the two @MainActor conformance annotations so the
-      # code parses in Swift 5 mode.  Then override SWIFT_VERSION to 5.0
-      # for ExpoModulesCore so concurrency issues become warnings, not
-      # errors, under minimal concurrency checking.
       - name: Patch ExpoModulesCore for Swift 5 compat
         run: |
           EMC=node_modules/expo-modules-core/ios
-          # 1) Remove @MainActor conformance attribute (Swift-6-only syntax)
           sed -i '' 's/@MainActor AnyExpoSwiftUIHostingView/AnyExpoSwiftUIHostingView/' \
             "$EMC/Core/Views/SwiftUI/SwiftUIHostingView.swift"
           sed -i '' 's/extension UIView: @MainActor AnyArgument/extension UIView: AnyArgument/' \
@@ -239,8 +220,6 @@ jobs:
       - name: Expo prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
 
-      # Override SWIFT_VERSION to 5.0 for ExpoModulesCore (the podspec
-      # sets 6.0 which makes concurrency violations hard errors).
       - name: Podfile – force Swift 5 for ExpoModulesCore
         run: |
           cd ios
@@ -263,17 +242,11 @@ jobs:
           grep -A 8 'CI patch' Podfile || true
           pod install
 
-      # Expo prebuild sets export SKIP_BUNDLING=1 for Debug builds in
-      # the "Bundle React Native code" script phase, before invoking the
-      # actual bundle script. The script also sources .xcode.env.updates
-      # specifically to allow this to be overridden.
       - name: Enable JS bundling for CI
         run: |
           echo 'unset SKIP_BUNDLING'    >  ios/.xcode.env.updates
           echo 'export FORCE_BUNDLING=1' >> ios/.xcode.env.updates
-          cat ios/.xcode.env.updates
 
-      # ── Discover simulator UDID ─────────────────────────────────────
       - name: Select iOS Simulator
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c "
@@ -300,16 +273,13 @@ jobs:
             exit 1
           fi
           echo "SIMULATOR_UDID=$UDID" >> $GITHUB_ENV
-          echo "Selected simulator: $UDID"
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID"
 
-      # ── Build for simulator ─────────────────────────────────────────
       - name: Build iOS app (Simulator)
         run: |
           set -o pipefail
           WORKSPACE=$(find ios -name '*.xcworkspace' -maxdepth 1 | head -1)
-          # The scheme name matches the Xcode project name (set by expo prebuild)
           SCHEME="PomegranateDBTodo"
           echo "Building workspace=$WORKSPACE scheme=$SCHEME udid=$SIMULATOR_UDID"
           xcodebuild \
@@ -326,34 +296,88 @@ jobs:
         env:
           NSUnbufferedIO: YES
 
-      # ── Install into the already-booted simulator ───────────────────
-      - name: Install app in simulator
+      - name: Package simulator .app
         run: |
-          # The build step used  -derivedDataPath ios/build -configuration Release
-          # so the .app bundle is under ios/build/Build/Products/Release-iphonesimulator/.
-          # Exclude any *Tests.app bundles which lack CFBundleIdentifier (exit 65).
           PRODUCTS_DIR="ios/build/Build/Products/Release-iphonesimulator"
-          echo "Looking for .app in $PRODUCTS_DIR …"
-          ls -la "$PRODUCTS_DIR/" 2>/dev/null || true
           APP_PATH=$(find "$PRODUCTS_DIR" -maxdepth 1 -name '*.app' \
             -not -name '*Tests*' -type d | head -1)
-          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: no .app found under $PRODUCTS_DIR" >&2
-            find ios/build -name '*.app' -type d 2>/dev/null >&2 || true
+          echo "APP_PATH=$APP_PATH"
+          tar czf /tmp/ios-app.tar.gz -C "$PRODUCTS_DIR" "$(basename "$APP_PATH")"
+          ls -lh /tmp/ios-app.tar.gz
+
+      - name: Upload iOS app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: /tmp/ios-app.tar.gz
+          retention-days: 1
+
+  # ─── iOS Simulator e2e (Maestro) ────────────────────────────────────────────
+  #
+  # Downloads the pre-built .app and runs Maestro flows with each adapter
+  # selected via the in-app picker (--env ADAPTER=xxx).
+
+  e2e-ios:
+    name: "iOS e2e · ${{ matrix.adapter }}"
+    needs: [build-ios]
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download iOS app artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-simulator-app
+
+      - name: Extract .app
+        run: |
+          mkdir -p /tmp/ios-app
+          tar xzf ios-app.tar.gz -C /tmp/ios-app
+          APP_PATH=$(find /tmp/ios-app -maxdepth 1 -name '*.app' -type d | head -1)
+          echo "APP_PATH=$APP_PATH"
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+
+      - name: Select iOS Simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          preferred = []
+          fallback = []
+          for runtime, devs in data['devices'].items():
+            if 'iOS' not in runtime:
+              continue
+            for d in devs:
+              if not d['isAvailable']:
+                continue
+              if 'iPhone 16' in d['name']:
+                preferred.append(d['udid'])
+              elif 'iPhone' in d['name']:
+                fallback.append(d['udid'])
+          result = preferred[0] if preferred else (fallback[0] if fallback else '')
+          print(result)
+          ")
+          if [ -z "$UDID" ]; then
+            echo "No available iPhone simulator found:" >&2
+            xcrun simctl list devices available >&2
             exit 1
           fi
-          echo "APP_PATH=$APP_PATH"
-          # Verify bundle ID is present (diagnoses exit-65 'Missing bundle ID')
+          echo "SIMULATOR_UDID=$UDID" >> $GITHUB_ENV
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID"
+
+      - name: Install app in simulator
+        run: |
           BID=$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Info.plist" 2>/dev/null || echo '')
           echo "CFBundleIdentifier=$BID"
-          if [ -z "$BID" ]; then
-            echo "ERROR: CFBundleIdentifier is empty — simctl install will fail" >&2
-            plutil -p "$APP_PATH/Info.plist" >&2 || true
-            exit 1
-          fi
           xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
 
-      # ── Maestro ─────────────────────────────────────────────────────
       - name: Install Maestro
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
@@ -363,10 +387,6 @@ jobs:
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
 
-          # Stream simulator logs in real-time to a file.
-          # log show (post-hoc) only reads persisted logs, and React Native's
-          # console.log on Release builds may not persist at the right level.
-          # log stream captures ALL levels in real-time, so we never miss output.
           xcrun simctl spawn "$SIMULATOR_UDID" log stream \
             --level debug --style compact 2>/dev/null > /tmp/ios-console.log &
           LOG_STREAM_PID=$!
@@ -374,13 +394,10 @@ jobs:
           xcrun simctl launch "$SIMULATOR_UDID" com.pomegranatedb.todo.demo
           sleep 15
 
-          # Diagnostics: what does the app show?
-          echo "=== Simulator screenshot ==="
           xcrun simctl io "$SIMULATOR_UDID" screenshot /tmp/ios-screenshot.png 2>/dev/null || true
 
-          maestro test maestro/
+          maestro test --env ADAPTER=${{ matrix.adapter }} demos/expo-todo/maestro/
 
-          # Give the stream a moment to flush, then stop it
           sleep 2
           kill $LOG_STREAM_PID 2>/dev/null || true
           wait $LOG_STREAM_PID 2>/dev/null || true
@@ -388,7 +405,6 @@ jobs:
       - name: Extract benchmark results
         if: always()
         run: |
-          # Extract from the real-time log stream captured during Maestro run
           grep "POMEGRANATE_BENCHMARK" /tmp/ios-console.log 2>/dev/null \
             | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
           echo "=== Benchmark JSON ==="
@@ -412,24 +428,17 @@ jobs:
           name: benchmark-expo-ios-${{ matrix.adapter }}
           path: /tmp/benchmark-result.json
           retention-days: 7
-  #
-  # Builds the Expo demo app for Android and runs the same Maestro flows as iOS.
-  # ubuntu-latest has KVM support, making emulator startup fast.
 
-  e2e-android:
-    name: "Android e2e · ${{ matrix.adapter }}"
+  # ─── Build Android APK (shared by all Android e2e jobs) ─────────────────────
+
+  build-android:
+    name: Build Android APK
     needs: [pack-library]
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: demos/expo-todo
-    timeout-minutes: 60
-    env:
-      EXPO_PUBLIC_ADAPTER: ${{ matrix.adapter }}
 
     steps:
       - uses: actions/checkout@v4
@@ -445,7 +454,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ── Cache Gradle downloads + build artifacts ────────────────────
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -455,21 +463,11 @@ jobs:
           key: gradle-${{ hashFiles('demos/expo-todo/package.json') }}
           restore-keys: gradle-
 
-      # ── Enable KVM for hardware-accelerated emulator ────────────────
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      # ── Download pre-built library tarball ──────────────────────────
       - name: Download library tarball
         uses: actions/download-artifact@v4
         with:
           name: pomegranate-tarball
 
-      # ── Prepare the demo app ────────────────────────────────────────
       - name: Install demo deps
         run: npm install --no-package-lock
 
@@ -480,13 +478,48 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         working-directory: demos/expo-todo/android
 
-      # ── Install Maestro ─────────────────────────────────────────────
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: demos/expo-todo/android/app/build/outputs/apk/release/*.apk
+          retention-days: 1
+
+  # ─── Android e2e (Maestro) ──────────────────────────────────────────────────
+  #
+  # Downloads the pre-built APK and runs Maestro flows on an Android emulator.
+  # Adapter is selected at runtime via the in-app picker (--env ADAPTER=xxx).
+
+  e2e-android:
+    name: "Android e2e · ${{ matrix.adapter }}"
+    needs: [build-android]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Install Maestro
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
 
-      # ── Launch emulator, install APK, run Maestro flows ─────────────
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2.33.0
         with:
@@ -495,34 +528,33 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            # Wait for emulator to be fully ready (mitigates "device not found" flake)
             adb wait-for-device
             adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done'
             adb shell settings put global window_animation_scale 0
             adb shell settings put global transition_animation_scale 0
             adb shell settings put global animator_duration_scale 0
 
-            adb install "$(find demos/expo-todo/android/app/build/outputs/apk/release -name '*.apk' | head -1)"
+            APK_PATH=$(find . -name '*.apk' -path '*/release/*' | head -1)
+            echo "Installing APK: $APK_PATH"
+            adb install "$APK_PATH"
             adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
             sleep 20
 
             echo "=== JS LOGCAT ==="
             adb logcat -d ReactNativeJS:V '*:S' | tail -40 || true
 
-            echo "=== ERROR LOGCAT ==="
-            adb logcat -d '*:E' | grep -i 'react\|js\|bundle\|fatal' | tail -30 || true
-
             echo "=== UI HIERARCHY ==="
             adb exec-out uiautomator dump /dev/tty 2>/dev/null || true
-            echo ""
 
-            echo "=== SCREENSHOT ==="
             adb exec-out screencap -p > /tmp/app-screenshot.png 2>/dev/null || true
 
-            $HOME/.maestro/bin/maestro test --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
+            $HOME/.maestro/bin/maestro test \
+              --env ADAPTER=${{ matrix.adapter }} \
+              --debug-output /tmp/maestro-debug \
+              demos/expo-todo/maestro/
 
-            # Extract benchmark results from logcat
-            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
+            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' \
+              | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
             echo "=== Benchmark JSON ==="
             cat /tmp/benchmark-result.json || echo 'No benchmark data found'
 
@@ -545,6 +577,7 @@ jobs:
           name: benchmark-expo-android-${{ matrix.adapter }}
           path: /tmp/benchmark-result.json
           retention-days: 7
+
 
   # ─── Podspec lint ────────────────────────────────────────────────────────────
   #

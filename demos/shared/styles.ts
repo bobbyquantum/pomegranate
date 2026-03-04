@@ -328,6 +328,19 @@ export const styles = StyleSheet.create({
     color: GRAY_500,
   },
 
+  // Inline loading (shown while DB bootstraps inside the layout)
+  loadingContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    marginTop: 14,
+    fontSize: 14,
+    color: GRAY_500,
+  },
+
   // Benchmark panel
   benchContainer: {
     flex: 1,
