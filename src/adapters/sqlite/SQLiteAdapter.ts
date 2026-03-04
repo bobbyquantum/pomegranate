@@ -191,7 +191,27 @@ export class SQLiteAdapter implements StorageAdapter {
     }
     this._inWriteTransaction = true;
     try {
-      await this._driver.executeInTransaction(fn);
+      // Use manual BEGIN/COMMIT instead of driver.executeInTransaction()
+      // because the inner fn() goes through async adapter methods (insert,
+      // update, etc.) which use `await`. Even when the driver is in sync
+      // mode, `await` yields to the microtask queue, so the sync
+      // transaction wrappers (withTransactionSync) can't work.
+      //
+      // Manual BEGIN/COMMIT is safe because all execute() calls on the
+      // same connection will be inside this transaction until COMMIT.
+      await this._driver.execute('BEGIN IMMEDIATE');
+      try {
+        await fn();
+        await this._driver.execute('COMMIT');
+      } catch (e) {
+        try {
+          await this._driver.execute('ROLLBACK');
+        } catch {
+          // Rollback failed — connection may be in a bad state, but
+          // we still want to surface the original error.
+        }
+        throw e;
+      }
     } finally {
       this._inWriteTransaction = false;
     }
