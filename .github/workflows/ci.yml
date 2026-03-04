@@ -488,14 +488,28 @@ jobs:
 
       # ── Launch emulator, install APK, run Maestro flows ─────────────
       - name: Run Maestro flows on Android emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.33.0
         with:
           api-level: 29
           arch: x86_64
           target: default
+          force-avd-creation: false
+          emulator-boot-timeout: 600
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
+            # Wait for emulator to be fully ready (mitigates "device not found" flake)
+            adb wait-for-device
+            for i in $(seq 1 60); do
+              boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+              [ "$boot" = "1" ] && break
+              echo "Waiting for boot… ($i/60)"
+              sleep 2
+            done
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
+
             adb install "$(find demos/expo-todo/android/app/build/outputs/apk/release -name '*.apk' | head -1)"
             adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
             sleep 20
