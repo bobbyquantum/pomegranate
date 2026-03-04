@@ -15,7 +15,7 @@ export default defineConfig({
   webServer: {
     command: `EXPO_PUBLIC_ADAPTER=${adapter} npx expo start --web --port 19006`,
     port: 19006,
-    timeout: 60_000,
+    timeout: 120_000,
     reuseExistingServer: !process.env.CI,
   },
   projects: [

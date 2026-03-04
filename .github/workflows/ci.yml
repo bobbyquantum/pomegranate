@@ -106,6 +106,7 @@ jobs:
     name: "Web e2e · ${{ matrix.adapter }}"
     needs: [pack-library]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
