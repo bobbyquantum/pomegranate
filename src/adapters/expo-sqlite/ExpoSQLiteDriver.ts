@@ -84,6 +84,25 @@ export interface ExpoSQLiteDriverConfig {
   preferSync?: boolean;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Replace `?` placeholders in SQL with literal values.
+ *
+ * This is used for `execAsync(multiStatement)` which doesn't accept bindings.
+ * Safe because all values come from our own SQL generators with known types.
+ */
+function inlineBindings(sql: string, bindings: unknown[]): string {
+  let index = 0;
+  return sql.replaceAll('?', () => {
+    const val = bindings[index++];
+    if (val === null || val === undefined) return 'NULL';
+    if (typeof val === 'number') return String(val);
+    if (typeof val === 'boolean') return val ? '1' : '0';
+    return `'${String(val).replaceAll("'", "''")}'`;
+  });
+}
+
 // ─── Driver Factory ───────────────────────────────────────────────────────
 
 /**
@@ -203,7 +222,7 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
             let done = false;
             fn().then(
               () => { done = true; },
-              (e) => { error = e; done = true; },
+              (error_) => { error = error_; done = true; },
             );
             // In sync mode all awaits inside fn() resolve immediately
             // (they're wrapping synchronous calls), so done should be true.
@@ -216,11 +235,11 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
             if (error) throw error;
           });
           return;
-        } catch (e: unknown) {
-          if (e instanceof Error && e.message.includes('not supported on web')) {
+        } catch (error: unknown) {
+          if (error instanceof Error && error.message.includes('not supported on web')) {
             // Fall through to async
           } else {
-            throw e;
+            throw error;
           }
         }
       }
@@ -232,11 +251,11 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
             await fn();
           });
           return;
-        } catch (e: unknown) {
-          if (e instanceof Error && e.message.includes('not supported on web')) {
+        } catch (error: unknown) {
+          if (error instanceof Error && error.message.includes('not supported on web')) {
             // Fall through to manual transaction below
           } else {
-            throw e;
+            throw error;
           }
         }
       }
@@ -247,18 +266,18 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
         try {
           await fn();
           database.execSync('COMMIT');
-        } catch (e) {
+        } catch (error) {
           database.execSync('ROLLBACK');
-          throw e;
+          throw error;
         }
       } else {
         await database.execAsync('BEGIN TRANSACTION');
         try {
           await fn();
           await database.execAsync('COMMIT');
-        } catch (e) {
+        } catch (error) {
           await database.execAsync('ROLLBACK');
-          throw e;
+          throw error;
         }
       }
     },
@@ -300,6 +319,83 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
       } else {
         await database.execAsync(sql);
       }
+    },
+
+    // ── Batch without transaction wrapping ──────────────────────────────
+    // Uses execAsync with concatenated SQL to send all commands in a
+    // single native call. This avoids per-statement async bridge overhead
+    // which is the main bottleneck for expo-sqlite async mode.
+    //
+    // Values are inlined using SQLite literal escaping. This is safe
+    // because all values come from our own SQL generators (insertSQL,
+    // updateSQL, deleteSQL) with known types.
+
+    async executeBatchNoTx(commands: Array<[string, unknown[]]>): Promise<void> {
+      const database = requireDb();
+      if (commands.length === 0) return;
+
+      // For sync mode, just loop — each call is ~0.02ms
+      if (useSync && database.runSync) {
+        for (const [sql, bindings] of commands) {
+          if (bindings && bindings.length > 0) {
+            database.runSync(sql, ...bindings);
+          } else if (database.execSync) {
+            database.execSync(sql);
+          } else {
+            database.runSync(sql);
+          }
+        }
+        return;
+      }
+
+      // Async mode: build a single SQL string with all statements.
+      // This sends one message across the async bridge instead of N.
+      const parts: string[] = [];
+      for (const [sql, bindings] of commands) {
+        if (!bindings || bindings.length === 0) {
+          parts.push(sql);
+        } else {
+          parts.push(inlineBindings(sql, bindings));
+        }
+      }
+      await database.execAsync(parts.join(';\n'));
+    },
+
+    // ── Batch with transaction wrapping (for use outside writeTransaction) ──
+    async executeBatch(commands: Array<[string, unknown[]]>): Promise<void> {
+      const database = requireDb();
+      if (commands.length === 0) return;
+
+      // For sync mode, use sync transaction
+      if (useSync && database.runSync && database.execSync) {
+        database.execSync('BEGIN TRANSACTION');
+        try {
+          for (const [sql, bindings] of commands) {
+            if (bindings && bindings.length > 0) {
+              database.runSync(sql, ...bindings);
+            } else {
+              database.execSync(sql);
+            }
+          }
+          database.execSync('COMMIT');
+        } catch (error) {
+          database.execSync('ROLLBACK');
+          throw error;
+        }
+        return;
+      }
+
+      // Async mode: concatenate with BEGIN/COMMIT wrapping
+      const parts: string[] = ['BEGIN TRANSACTION'];
+      for (const [sql, bindings] of commands) {
+        if (!bindings || bindings.length === 0) {
+          parts.push(sql);
+        } else {
+          parts.push(inlineBindings(sql, bindings));
+        }
+      }
+      parts.push('COMMIT');
+      await database.execAsync(parts.join(';\n'));
     },
   };
 }

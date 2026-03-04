@@ -12,7 +12,7 @@
 
 import type { StorageAdapter, AdapterConfig, EncryptionConfig, Migration } from '../types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../../query/types';
-import type { DatabaseSchema, RawRecord, TableSchema } from '../../schema/types';
+import type { DatabaseSchema, RawRecord } from '../../schema/types';
 import {
   createTableSQL,
   selectSQL,
@@ -64,6 +64,16 @@ export interface SQLiteDriver {
    * execute them atomically (in a single transaction).
    */
   executeBatch?(commands: Array<[string, unknown[]]>): Promise<void>;
+
+  /**
+   * Optional: like executeBatch but without wrapping in a transaction.
+   * Used when the adapter has already opened a transaction (BEGIN IMMEDIATE)
+   * and we want to run many commands in a single native call without nesting.
+   *
+   * If not provided, the adapter falls back to looping individual execute()
+   * calls (still fast for sync drivers, but slow for async-only drivers).
+   */
+  executeBatchNoTx?(commands: Array<[string, unknown[]]>): Promise<void>;
 }
 
 // ─── SQLite Adapter Config ────────────────────────────────────────────────
@@ -152,7 +162,7 @@ export class SQLiteAdapter implements StorageAdapter {
   async count(query: QueryDescriptor): Promise<number> {
     const { sql, bindings } = countSQL(query);
     const rows = await this._driver.query(sql, bindings);
-    return (rows[0] as any)?.count ?? 0;
+    return (rows[0] as Record<string, unknown>)?.count as number ?? 0;
   }
 
   async findById(table: string, id: string): Promise<RawRecord | null> {
@@ -203,14 +213,14 @@ export class SQLiteAdapter implements StorageAdapter {
       try {
         await fn();
         await this._driver.execute('COMMIT');
-      } catch (e) {
+      } catch (error) {
         try {
           await this._driver.execute('ROLLBACK');
         } catch {
           // Rollback failed — connection may be in a bad state, but
           // we still want to surface the original error.
         }
-        throw e;
+        throw error;
       }
     } finally {
       this._inWriteTransaction = false;
@@ -253,9 +263,17 @@ export class SQLiteAdapter implements StorageAdapter {
     // transaction internally, and SQLite doesn't support nested transactions.
     // That causes a deadlock / hang (the CI benchmark hang).
     if (this._inWriteTransaction) {
-      // Already inside a write transaction — just execute directly, no nesting
-      for (const [sql, bindings] of commands) {
-        await this._driver.execute(sql, bindings);
+      if (this._driver.executeBatchNoTx) {
+        // Best path: single native call, no transaction wrapper.
+        // Critical for async drivers (expo-sqlite) where per-call overhead
+        // is high (~2ms). Turns 10K bridge crossings into 1.
+        await this._driver.executeBatchNoTx(commands);
+      } else {
+        // Sync drivers (op-sqlite, native-sqlite) are fast enough per-call
+        // that looping is acceptable (~0.02ms each).
+        for (const [sql, bindings] of commands) {
+          await this._driver.execute(sql, bindings);
+        }
       }
     } else if (this._driver.executeBatch) {
       // Prefer the driver's native batch if available (single JSI call,
@@ -282,7 +300,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
     return {
       records: rows as RawRecord[],
-      total: (countRows[0] as any)?.count ?? 0,
+      total: (countRows[0] as Record<string, unknown>)?.count as number ?? 0,
     };
   }
 
