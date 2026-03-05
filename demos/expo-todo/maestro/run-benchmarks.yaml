@@ -19,7 +19,7 @@ env:
       id: "adapter-option-${ADAPTER}"
     timeout: 15000
 # Scroll horizontally to bring the chip into view (horizontal ScrollView)
-- scrollHorizontally:
+- scroll:
     direction: RIGHT
     duration: 500
 - tapOn:

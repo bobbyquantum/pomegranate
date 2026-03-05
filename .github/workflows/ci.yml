@@ -533,6 +533,8 @@ jobs:
 
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2.33.0
+        env:
+          APK_PATH: ${{ github.workspace }}/app-release.apk
         with:
           api-level: 29
           emulator-boot-timeout: 900
@@ -547,7 +549,6 @@ jobs:
 
             # Artifact is downloaded to the workspace root as app-release.apk.
             # Use APK from workspace (copied before emulator-runner changes cwd)
-            APK_PATH="${{ github.workspace }}/app-release.apk"
             echo "Installing APK from: $APK_PATH"
             ls -la "$APK_PATH" || echo "APK file not found!"
             adb install "$APK_PATH"
