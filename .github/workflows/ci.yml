@@ -516,8 +516,8 @@ jobs:
           find . -type f -name '*.apk' -ls || echo "No APK files found"
           echo "=== Current directory ==="
           pwd
-          # Copy APK to workspace root to preserve it from android-emulator-runner
-          cp app-release.apk "${{ github.workspace }}/app-release.apk" || true
+          # Copy APK to /tmp to preserve it from android-emulator-runner
+          cp app-release.apk /tmp/app-release.apk || true
 
       - name: Enable KVM
         run: |
@@ -546,10 +546,10 @@ jobs:
             adb shell settings put global animator_duration_scale 0
 
             # Artifact is downloaded to the workspace root as app-release.apk.
-            # Install APK directly using absolute path
-            echo "Installing APK from: /home/runner/work/pomegranate/pomegranate/app-release.apk"
-            ls -la /home/runner/work/pomegranate/pomegranate/app-release.apk || echo "APK file not found!"
-            adb install /home/runner/work/pomegranate/pomegranate/app-release.apk
+            # Use APK from /tmp (copied before emulator-runner changes cwd)
+            echo "Installing APK from: /tmp/app-release.apk"
+            ls -la /tmp/app-release.apk || echo "APK file not found!"
+            adb install /tmp/app-release.apk
             adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
             sleep 20
 
