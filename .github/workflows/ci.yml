@@ -508,6 +508,15 @@ jobs:
         with:
           name: android-release-apk
 
+      - name: Debug APK location
+        run: |
+          echo "=== Files in current directory ==="
+          ls -la
+          echo "=== Finding APK files ==="
+          find . -type f -name '*.apk' -ls || echo "No APK files found"
+          echo "=== Current directory ==="
+          pwd
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
