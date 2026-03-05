@@ -2,8 +2,6 @@ appId: com.pomegranatedb.todo.demo
 name: Full CRUD flow
 onFlowError:
   - takeScreenshot: full-crud-ERROR
-env:
-  ADAPTER: "loki-memory"
 ---
 - stopApp
 - launchApp:

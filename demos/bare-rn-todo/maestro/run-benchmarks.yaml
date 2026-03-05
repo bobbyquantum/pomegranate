@@ -2,8 +2,6 @@ appId: com.barerntodo
 name: Run benchmarks
 onFlowError:
   - takeScreenshot: benchmark-ERROR
-env:
-  ADAPTER: "loki-memory"
 ---
 - stopApp
 - launchApp:

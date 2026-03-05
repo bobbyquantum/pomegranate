@@ -2,8 +2,6 @@ appId: com.barerntodo
 name: Full CRUD flow
 onFlowError:
   - takeScreenshot: full-crud-ERROR
-env:
-  ADAPTER: "loki-memory"
 ---
 - stopApp
 - launchApp:
