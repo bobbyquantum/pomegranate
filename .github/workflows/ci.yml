@@ -543,9 +543,9 @@ jobs:
             adb shell settings put global transition_animation_scale 0
             adb shell settings put global animator_duration_scale 0
 
-            # Artifact is downloaded as a ZIP and extracted to a subdirectory.
-            # Find the APK recursively (may be in android-release-apk/ subfolder).
-            APK_PATH=$(find . -type f -name '*.apk' | head -1)
+            # Artifact is downloaded to the workspace root as app-release.apk.
+            # Use explicit path since android-emulator-runner may change cwd.
+            APK_PATH="./app-release.apk"
             echo "Installing APK: $APK_PATH"
             adb install "$APK_PATH"
             adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
