@@ -651,11 +651,12 @@ function MainContent({ adapterName }: { adapterName: string }) {
 // platform so users only see options that work on the current device.
 
 const ADAPTER_OPTIONS: AdapterOption[] = [
+  // CI-tested adapters first (must be visible without scrolling on 540px emulator)
   { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
   { variant: 'expo-sqlite', name: 'ExpoSQLite (async)', label: 'Expo SQL' },
+  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
   { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL', nativeOnly: true },
   { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI', nativeOnly: true },
-  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
   { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async', nativeOnly: true },
   { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
 ];
@@ -665,13 +666,16 @@ const DEFAULT_VARIANT =
   (Platform.OS === 'web' ? 'loki-idb' : 'loki-memory');
 
 function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
+  // Each variant gets its own database file to avoid "database is locked"
+  // errors when switching adapters (the old connection may not be closed yet).
+  const dbName = `pomegranate-demo-${variant}`;
 
   if (variant === 'expo-sqlite') {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         driver: createExpoSQLiteDriver(),
       }),
       name: 'ExpoSQLite (async)',
@@ -683,7 +687,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
     const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         driver: createExpoSQLiteDriver({ preferSync: true }),
       }),
       name: 'ExpoSQLite (sync)',
@@ -695,7 +699,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
     const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         driver: createOpSQLiteDriver(),
       }),
       name: 'OpSQLite (sync)',
@@ -707,7 +711,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
     const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         driver: createOpSQLiteDriver({ preferSync: false }),
       }),
       name: 'OpSQLite (async)',
@@ -719,7 +723,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
     const { createNativeSQLiteDriver } = require('pomegranate-db/native-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         driver: createNativeSQLiteDriver(),
       }),
       name: 'NativeSQLite (JSI)',
@@ -731,7 +735,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
     const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
     return {
       adapter: new LokiAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         persistenceAdapter: new IncrementalIDBAdapter(),
       }),
       name: 'Loki + IndexedDB',
@@ -740,7 +744,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
 
   // loki-memory (default): pure in-memory, works on all platforms
   return {
-    adapter: new LokiAdapter({ databaseName: 'pomegranate-demo' }),
+    adapter: new LokiAdapter({ databaseName: dbName }),
     name: 'Loki (memory)',
   };
 }

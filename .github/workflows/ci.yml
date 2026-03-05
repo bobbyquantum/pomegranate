@@ -314,18 +314,14 @@ jobs:
 
   # ─── iOS Simulator e2e (Maestro) ────────────────────────────────────────────
   #
-  # Downloads the pre-built .app and runs Maestro flows with each adapter
-  # selected via the in-app picker (--env ADAPTER=xxx).
+  # Downloads the pre-built .app, boots one simulator, installs the app once,
+  # then loops through all adapters — relaunching via Maestro for each one.
 
   e2e-ios:
-    name: "iOS e2e · ${{ matrix.adapter }}"
+    name: "iOS e2e (all adapters)"
     needs: [build-ios]
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -383,50 +379,71 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
 
-      - name: Run Maestro flows
+      - name: Run Maestro flows (all adapters)
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
+          mkdir -p /tmp/benchmarks
 
-          xcrun simctl spawn "$SIMULATOR_UDID" log stream \
-            --level debug --style compact 2>/dev/null > /tmp/ios-console.log &
-          LOG_STREAM_PID=$!
+          ADAPTERS="loki-memory expo-sqlite expo-sqlite-sync op-sqlite native-sqlite"
+          FAILED=""
 
-          xcrun simctl launch "$SIMULATOR_UDID" com.pomegranatedb.todo.demo
-          sleep 15
+          for ADAPTER in $ADAPTERS; do
+            echo ""
+            echo "=========================================="
+            echo "  Running e2e: $ADAPTER"
+            echo "=========================================="
 
-          xcrun simctl io "$SIMULATOR_UDID" screenshot /tmp/ios-screenshot.png 2>/dev/null || true
+            # Start a fresh log stream for this adapter
+            xcrun simctl spawn "$SIMULATOR_UDID" log stream \
+              --level debug --style compact 2>/dev/null > "/tmp/ios-console-${ADAPTER}.log" &
+            LOG_PID=$!
+            sleep 1
 
-          maestro test --env ADAPTER=${{ matrix.adapter }} demos/expo-todo/maestro/
+            if maestro test --env "ADAPTER=${ADAPTER}" demos/expo-todo/maestro/; then
+              echo "✅ $ADAPTER passed"
+            else
+              echo "❌ $ADAPTER FAILED"
+              FAILED="$FAILED $ADAPTER"
+            fi
 
-          sleep 2
-          kill $LOG_STREAM_PID 2>/dev/null || true
-          wait $LOG_STREAM_PID 2>/dev/null || true
+            sleep 2
+            kill $LOG_PID 2>/dev/null || true
+            wait $LOG_PID 2>/dev/null || true
 
-      - name: Extract benchmark results
-        if: always()
-        run: |
-          grep "POMEGRANATE_BENCHMARK" /tmp/ios-console.log 2>/dev/null \
-            | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
-          echo "=== Benchmark JSON ==="
-          cat /tmp/benchmark-result.json || echo 'No benchmark data found'
+            # Extract benchmark JSON for this adapter
+            grep "POMEGRANATE_BENCHMARK" "/tmp/ios-console-${ADAPTER}.log" 2>/dev/null \
+              | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 \
+              > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+
+            echo "=== Benchmark ($ADAPTER) ==="
+            cat "/tmp/benchmarks/benchmark-${ADAPTER}.json" || echo 'No data'
+          done
+
+          echo ""
+          echo "=========================================="
+          if [ -n "$FAILED" ]; then
+            echo "FAILED adapters:$FAILED"
+            exit 1
+          else
+            echo "All adapters passed ✅"
+          fi
 
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: maestro-report-ios-${{ matrix.adapter }}
+          name: maestro-report-ios
           path: |
             ~/.maestro/tests/
-            /tmp/ios-screenshot.png
-            /tmp/benchmark-result.json
+            /tmp/ios-console-*.log
           retention-days: 7
 
       - name: Upload benchmark data
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-expo-ios-${{ matrix.adapter }}
-          path: /tmp/benchmark-result.json
+          name: benchmark-expo-ios
+          path: /tmp/benchmarks/
           retention-days: 7
 
   # ─── Build Android APK (shared by all Android e2e jobs) ─────────────────────
@@ -487,18 +504,14 @@ jobs:
 
   # ─── Android e2e (Maestro) ──────────────────────────────────────────────────
   #
-  # Downloads the pre-built APK and runs Maestro flows on an Android emulator.
-  # Adapter is selected at runtime via the in-app picker (--env ADAPTER=xxx).
+  # Downloads the pre-built APK, boots one emulator, installs the app once,
+  # then loops through all adapters — relaunching via Maestro for each one.
 
   e2e-android:
-    name: "Android e2e · ${{ matrix.adapter }}"
+    name: "Android e2e (all adapters)"
     needs: [build-android]
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        adapter: [loki-memory, expo-sqlite, op-sqlite, native-sqlite]
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -545,46 +558,66 @@ jobs:
             adb shell settings put global transition_animation_scale 0
             adb shell settings put global animator_duration_scale 0
 
-            # Artifact is downloaded to the workspace root as app-release.apk.
-            # Use APK from /tmp (copied before emulator-runner changes cwd)
             echo "Installing APK from: /tmp/app-release.apk"
             ls -la /tmp/app-release.apk || echo "APK file not found!"
             adb install /tmp/app-release.apk
-            adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
-            sleep 20
 
-            echo "=== JS LOGCAT ==="
-            adb logcat -d ReactNativeJS:V '*:S' | tail -40 || true
+            mkdir -p /tmp/benchmarks
 
-            echo "=== UI HIERARCHY ==="
-            adb exec-out uiautomator dump /dev/tty 2>/dev/null || true
+            ADAPTERS="loki-memory expo-sqlite expo-sqlite-sync op-sqlite native-sqlite"
+            FAILED=""
 
-            adb exec-out screencap -p > /tmp/app-screenshot.png 2>/dev/null || true
+            for ADAPTER in $ADAPTERS; do
+              echo ""
+              echo "=========================================="
+              echo "  Running e2e: $ADAPTER"
+              echo "=========================================="
 
-            $HOME/.maestro/bin/maestro test --env ADAPTER=${{ matrix.adapter }} --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
+              adb logcat -c
 
-            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
-            echo "=== Benchmark JSON ==="
-            cat /tmp/benchmark-result.json || echo 'No benchmark data found'
+              adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
+              sleep 15
+
+              adb exec-out screencap -p > "/tmp/screenshot-${ADAPTER}.png" 2>/dev/null || true
+
+              if $HOME/.maestro/bin/maestro test --env "ADAPTER=${ADAPTER}" --debug-output "/tmp/maestro-debug-${ADAPTER}" demos/expo-todo/maestro/; then
+                echo "✅ $ADAPTER passed"
+              else
+                echo "❌ $ADAPTER FAILED"
+                FAILED="$FAILED $ADAPTER"
+              fi
+
+              adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+              echo "=== Benchmark ($ADAPTER) ==="
+              cat "/tmp/benchmarks/benchmark-${ADAPTER}.json" || echo 'No data'
+            done
+
+            echo ""
+            echo "=========================================="
+            if [ -n "$FAILED" ]; then
+              echo "FAILED adapters:$FAILED"
+              exit 1
+            else
+              echo "All adapters passed ✅"
+            fi
 
       - name: Upload Maestro output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: maestro-android-report-${{ matrix.adapter }}
+          name: maestro-android-report
           path: |
             ~/.maestro/tests/
-            /tmp/maestro-debug/
-            /tmp/app-screenshot.png
-            /tmp/benchmark-result.json
+            /tmp/maestro-debug-*/
+            /tmp/screenshot-*.png
           retention-days: 7
 
       - name: Upload benchmark data
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-expo-android-${{ matrix.adapter }}
-          path: /tmp/benchmark-result.json
+          name: benchmark-expo-android
+          path: /tmp/benchmarks/
           retention-days: 7
 
 
@@ -628,20 +661,34 @@ jobs:
           import json, glob, os, sys
 
           rows = []
-          for path in sorted(glob.glob("benchmarks/*/benchmark-result.json")):
+          # Match both old per-adapter artifacts (web) and new multi-file artifacts (ios/android)
+          for path in sorted(glob.glob("benchmarks/**/benchmark*.json", recursive=True)):
               try:
                   with open(path) as f:
                       content = f.read().strip()
                   if not content:
                       continue
                   data = json.loads(content)
-                  # Derive platform + app from artifact directory name
-                  # e.g. benchmarks/benchmark-expo-ios-loki-memory/benchmark-result.json
+
+                  # Derive platform + adapter from path structure.
+                  # New format: benchmarks/benchmark-expo-ios/benchmark-loki-memory.json
+                  # Old format: benchmarks/benchmark-expo-web-loki-idb/benchmark-result.json
                   dirname = os.path.basename(os.path.dirname(path))
-                  parts = dirname.replace("benchmark-", "").split("-", 2)
-                  app = parts[0] if len(parts) > 0 else "?"         # expo / bare
-                  platform = parts[1] if len(parts) > 1 else "?"    # ios / android
-                  adapter = parts[2] if len(parts) > 2 else "?"     # loki-memory etc.
+                  filename = os.path.splitext(os.path.basename(path))[0]  # e.g. "benchmark-loki-memory"
+
+                  dir_parts = dirname.replace("benchmark-", "").split("-", 2)
+                  app = dir_parts[0] if len(dir_parts) > 0 else "?"
+                  platform = dir_parts[1] if len(dir_parts) > 1 else "?"
+
+                  if filename != "benchmark-result" and filename.startswith("benchmark-"):
+                      # New format: adapter is in the filename
+                      adapter = filename.replace("benchmark-", "")
+                  elif len(dir_parts) > 2:
+                      # Old format: adapter is the 3rd part of the directory name
+                      adapter = dir_parts[2]
+                  else:
+                      # Fallback: try the "ad" key from compact JSON
+                      adapter = data.get("ad", "?")
 
                   # Support both compact (r/n/o/t/a/s/ms/ad) and full key formats
                   results_raw = data.get("results") or data.get("r") or []

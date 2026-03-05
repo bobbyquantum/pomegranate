@@ -529,13 +529,14 @@ const ADAPTER_OPTIONS: AdapterOption[] = [
 const DEFAULT_VARIANT = process.env.ADAPTER ?? 'loki-memory';
 
 function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
+  const dbName = `pomegranate-bare-demo-${variant}`;
 
   if (variant === 'op-sqlite') {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-bare-demo',
+        databaseName: dbName,
         driver: createOpSQLiteDriver(),
       }),
       name: 'OpSQLite (sync)',
@@ -547,7 +548,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
     const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-bare-demo',
+        databaseName: dbName,
         driver: createOpSQLiteDriver({ preferSync: false }),
       }),
       name: 'OpSQLite (async)',
@@ -559,7 +560,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
     const { createNativeSQLiteDriver } = require('pomegranate-db/native-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-bare-demo',
+        databaseName: dbName,
         driver: createNativeSQLiteDriver(),
       }),
       name: 'NativeSQLite (JSI)',
@@ -568,7 +569,7 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
 
   // loki-memory (default): pure in-memory, works on all platforms
   return {
-    adapter: new LokiAdapter({ databaseName: 'pomegranate-bare-demo' }),
+    adapter: new LokiAdapter({ databaseName: dbName }),
     name: 'Loki (memory)',
   };
 }

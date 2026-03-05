@@ -656,11 +656,12 @@ const ADAPTER_OPTIONS: AdapterOption[] = [
 const DEFAULT_VARIANT = process.env.EXPO_PUBLIC_ADAPTER ?? 'expo-sqlite';
 
 function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter; name: string } {
+  const dbName = `pomegranate-expo-go-demo-${variant}`;
 
   if (variant === 'expo-sqlite-sync') {
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-expo-go-demo',
+        databaseName: dbName,
         driver: createExpoSQLiteDriver({ preferSync: true }),
       }),
       name: 'ExpoSQLite (sync)',
@@ -672,7 +673,7 @@ function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter;
     const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
     return {
       adapter: new LokiAdapter({
-        databaseName: 'pomegranate-expo-go-demo',
+        databaseName: dbName,
         persistenceAdapter: new IncrementalIDBAdapter(),
       }),
       name: 'Loki + IndexedDB',
@@ -681,7 +682,7 @@ function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter;
 
   if (variant === 'loki-memory') {
     return {
-      adapter: new LokiAdapter({ databaseName: 'pomegranate-expo-go-demo' }),
+      adapter: new LokiAdapter({ databaseName: dbName }),
       name: 'Loki (memory)',
     };
   }
@@ -689,7 +690,7 @@ function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter;
   // Default: expo-sqlite async
   return {
     adapter: new SQLiteAdapter({
-      databaseName: 'pomegranate-expo-go-demo',
+      databaseName: dbName,
       driver: createExpoSQLiteDriver(),
     }),
     name: 'ExpoSQLite (async)',
