@@ -561,13 +561,9 @@ jobs:
 
             adb exec-out screencap -p > /tmp/app-screenshot.png 2>/dev/null || true
 
-            $HOME/.maestro/bin/maestro test \
-              --env ADAPTER=${{ matrix.adapter }} \
-              --debug-output /tmp/maestro-debug \
-              demos/expo-todo/maestro/
+            $HOME/.maestro/bin/maestro test --env ADAPTER=${{ matrix.adapter }} --debug-output /tmp/maestro-debug demos/expo-todo/maestro/
 
-            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' \
-              | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
+            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > /tmp/benchmark-result.json
             echo "=== Benchmark JSON ==="
             cat /tmp/benchmark-result.json || echo 'No benchmark data found'
 

@@ -56,9 +56,7 @@ export function AdapterPicker({ options, selected, onSelect }: Props) {
           <Pressable
             key={opt.variant}
             testID={`adapter-option-${opt.variant}`}
-            accessible={true}
-            accessibilityRole="button"
-            accessibilityLabel={opt.label ?? opt.name}
+            nativeID={`adapter-option-${opt.variant}`}
             onPress={() => onSelect(opt.variant)}
             style={({ pressed }) => [
               pickerStyles.chip,
