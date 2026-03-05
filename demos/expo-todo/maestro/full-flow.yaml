@@ -19,10 +19,9 @@ env:
     visible:
       id: "adapter-option-${ADAPTER}"
     timeout: 15000
-# Scroll horizontally to bring the chip into view (horizontal ScrollView)
-- scroll:
+# Scroll right to bring the chip into view (horizontal ScrollView)
+- swipe:
     direction: RIGHT
-    duration: 500
 - tapOn:
     id: "adapter-option-${ADAPTER}"
 - extendedWaitUntil:
