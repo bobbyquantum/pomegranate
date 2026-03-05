@@ -544,6 +544,63 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
 
+      - name: Write adapter-loop script
+        run: |
+          cat > /tmp/run-adapters.sh << 'SCRIPT_EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          adb wait-for-device
+          adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done'
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+
+          echo "Installing APK from: /tmp/app-release.apk"
+          ls -la /tmp/app-release.apk || echo "APK file not found!"
+          adb install /tmp/app-release.apk
+
+          mkdir -p /tmp/benchmarks
+
+          ADAPTERS="loki-memory expo-sqlite expo-sqlite-sync op-sqlite native-sqlite"
+          FAILED=""
+
+          for ADAPTER in $ADAPTERS; do
+            echo ""
+            echo "=========================================="
+            echo "  Running e2e: $ADAPTER"
+            echo "=========================================="
+
+            adb logcat -c
+
+            adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
+            sleep 15
+
+            adb exec-out screencap -p > "/tmp/screenshot-${ADAPTER}.png" 2>/dev/null || true
+
+            if "$HOME/.maestro/bin/maestro" test --env "ADAPTER=${ADAPTER}" --debug-output "/tmp/maestro-debug-${ADAPTER}" demos/expo-todo/maestro/; then
+              echo "✅ $ADAPTER passed"
+            else
+              echo "❌ $ADAPTER FAILED"
+              FAILED="$FAILED $ADAPTER"
+            fi
+
+            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+            echo "=== Benchmark ($ADAPTER) ==="
+            cat "/tmp/benchmarks/benchmark-${ADAPTER}.json" || echo 'No data'
+          done
+
+          echo ""
+          echo "=========================================="
+          if [ -n "$FAILED" ]; then
+            echo "FAILED adapters:$FAILED"
+            exit 1
+          else
+            echo "All adapters passed ✅"
+          fi
+          SCRIPT_EOF
+          chmod +x /tmp/run-adapters.sh
+
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2.33.0
         with:
@@ -551,55 +608,7 @@ jobs:
           emulator-boot-timeout: 900
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none -skin 540x960
           disable-animations: true
-          script: |
-            adb wait-for-device
-            adb shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done'
-            adb shell settings put global window_animation_scale 0
-            adb shell settings put global transition_animation_scale 0
-            adb shell settings put global animator_duration_scale 0
-
-            echo "Installing APK from: /tmp/app-release.apk"
-            ls -la /tmp/app-release.apk || echo "APK file not found!"
-            adb install /tmp/app-release.apk
-
-            mkdir -p /tmp/benchmarks
-
-            ADAPTERS="loki-memory expo-sqlite expo-sqlite-sync op-sqlite native-sqlite"
-            FAILED=""
-
-            for ADAPTER in $ADAPTERS; do
-              echo ""
-              echo "=========================================="
-              echo "  Running e2e: $ADAPTER"
-              echo "=========================================="
-
-              adb logcat -c
-
-              adb shell am start -n com.pomegranatedb.todo.demo/.MainActivity
-              sleep 15
-
-              adb exec-out screencap -p > "/tmp/screenshot-${ADAPTER}.png" 2>/dev/null || true
-
-              if $HOME/.maestro/bin/maestro test --env "ADAPTER=${ADAPTER}" --debug-output "/tmp/maestro-debug-${ADAPTER}" demos/expo-todo/maestro/; then
-                echo "✅ $ADAPTER passed"
-              else
-                echo "❌ $ADAPTER FAILED"
-                FAILED="$FAILED $ADAPTER"
-              fi
-
-              adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
-              echo "=== Benchmark ($ADAPTER) ==="
-              cat "/tmp/benchmarks/benchmark-${ADAPTER}.json" || echo 'No data'
-            done
-
-            echo ""
-            echo "=========================================="
-            if [ -n "$FAILED" ]; then
-              echo "FAILED adapters:$FAILED"
-              exit 1
-            else
-              echo "All adapters passed ✅"
-            fi
+          script: bash /tmp/run-adapters.sh
 
       - name: Upload Maestro output
         if: always()
@@ -784,5 +793,32 @@ jobs:
 
           # Also print to stdout for logs
           print(summary)
+
+          # Write structured JSON summary
+          json_summary = {
+              "generated": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+              "rows": rows,
+              "by_adapter": {},
+              "by_operation": {},
+          }
+          for r in rows:
+              key = f"{r['app']}/{r['platform']}/{r['adapter']}"
+              json_summary["by_adapter"].setdefault(key, []).append(r)
+          # by_operation: { "Insert (single, N=100)": { "expo/ios/loki-memory": {...}, ... } }
+          for r in rows:
+              label = f"{r['app']}/{r['platform']}/{r['adapter']}"
+              json_summary["by_operation"].setdefault(r["operation"], {})[label] = r
+
+          with open("benchmark-summary.json", "w") as f:
+              json.dump(json_summary, f, indent=2)
+          print("\nJSON summary written to benchmark-summary.json")
           PYEOF
           python3 generate-summary.py
+
+      - name: Upload benchmark summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-summary
+          path: benchmark-summary.json
+          retention-days: 30
