@@ -651,13 +651,13 @@ function MainContent({ adapterName }: { adapterName: string }) {
 // platform so users only see options that work on the current device.
 
 const ADAPTER_OPTIONS: AdapterOption[] = [
-  { variant: 'expo-sqlite', name: 'ExpoSQLite (async)', label: 'Expo SQL' },
-  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
-  { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL', nativeOnly: true },
-  { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async', nativeOnly: true },
-  { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI', nativeOnly: true },
-  { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
   { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
+  { variant: 'expo-sqlite', name: 'ExpoSQLite (async)', label: 'Expo SQL' },
+  { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL', nativeOnly: true },
+  { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI', nativeOnly: true },
+  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
+  { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async', nativeOnly: true },
+  { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
 ];
 
 const DEFAULT_VARIANT =

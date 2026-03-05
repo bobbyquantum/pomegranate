@@ -520,10 +520,10 @@ function MainContent({ adapterName }: { adapterName: string }) {
 // ─── Adapter configuration ─────────────────────────────────────────────────
 
 const ADAPTER_OPTIONS: AdapterOption[] = [
-  { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL' },
-  { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async' },
-  { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI' },
   { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
+  { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL' },
+  { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI' },
+  { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async' },
 ];
 
 const DEFAULT_VARIANT = process.env.ADAPTER ?? 'loki-memory';
