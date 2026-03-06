@@ -424,9 +424,18 @@ jobs:
             wait $LOG_PID 2>/dev/null || true
 
             # Extract benchmark JSON for this adapter
+            # Primary: from the log stream file
             grep "POMEGRANATE_BENCHMARK" "/tmp/ios-console-${ADAPTER}.log" 2>/dev/null \
               | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 \
               > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+
+            # Fallback: if log stream missed it, try the system log directly
+            if [ ! -s "/tmp/benchmarks/benchmark-${ADAPTER}.json" ]; then
+              xcrun simctl spawn "$SIMULATOR_UDID" log show --last 5m --style compact 2>/dev/null \
+                | grep "POMEGRANATE_BENCHMARK" \
+                | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 \
+                > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+            fi
 
             echo "=== Benchmark ($ADAPTER) ==="
             cat "/tmp/benchmarks/benchmark-${ADAPTER}.json" || echo 'No data'
