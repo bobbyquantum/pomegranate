@@ -647,8 +647,7 @@ function MainContent({ adapterName }: { adapterName: string }) {
 // ─── Adapter configuration ─────────────────────────────────────────────────
 
 const ADAPTER_OPTIONS: AdapterOption[] = [
-  { variant: 'expo-sqlite', name: 'ExpoSQLite (async)', label: 'Expo SQL' },
-  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
+  { variant: 'expo-sqlite', name: 'ExpoSQLite (sync)', label: 'Expo SQL', nativeOnly: true },
   { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
   { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
 ];
@@ -657,16 +656,6 @@ const DEFAULT_VARIANT = process.env.EXPO_PUBLIC_ADAPTER ?? 'expo-sqlite';
 
 function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter; name: string } {
   const dbName = `pomegranate-expo-go-demo-${variant}`;
-
-  if (variant === 'expo-sqlite-sync') {
-    return {
-      adapter: new SQLiteAdapter({
-        databaseName: dbName,
-        driver: createExpoSQLiteDriver({ preferSync: true }),
-      }),
-      name: 'ExpoSQLite (sync)',
-    };
-  }
 
   if (variant === 'loki-idb') {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -687,13 +676,13 @@ function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter;
     };
   }
 
-  // Default: expo-sqlite async
+  // Default: expo-sqlite sync
   return {
     adapter: new SQLiteAdapter({
       databaseName: dbName,
-      driver: createExpoSQLiteDriver(),
+      driver: createExpoSQLiteDriver({ preferSync: true }),
     }),
-    name: 'ExpoSQLite (async)',
+    name: 'ExpoSQLite (sync)',
   };
 }
 

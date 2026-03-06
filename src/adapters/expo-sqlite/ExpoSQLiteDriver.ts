@@ -30,6 +30,18 @@ import type { SQLiteDriver } from '../sqlite/SQLiteAdapter';
 // We define minimal types for both async and sync APIs so we don't require
 // expo-sqlite as a direct dependency — it's a peer dependency.
 
+type ExpoSQLiteStatementResult = {
+  readonly lastInsertRowId: number;
+  readonly changes: number;
+  resetSync(): void;
+  getAllSync<T = Record<string, unknown>>(): T[];
+};
+
+type ExpoSQLiteStatement = {
+  executeSync(params: unknown[]): ExpoSQLiteStatementResult;
+  finalizeSync(): void;
+};
+
 type ExpoSQLiteDatabase = {
   // Async API (always available)
   execAsync(source: string): Promise<void>;
@@ -50,6 +62,9 @@ type ExpoSQLiteDatabase = {
   getAllSync?<T = Record<string, unknown>>(source: string, ...params: unknown[]): T[];
   withTransactionSync?(task: () => void): void;
   closeSync?(): void;
+
+  // Prepared statement API (native only)
+  prepareSync?(source: string): ExpoSQLiteStatement;
 };
 
 type ExpoSQLiteModule = {
@@ -118,6 +133,43 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
   // Whether we're actually using sync mode (resolved after open)
   let useSync = false;
 
+  // ── Statement cache (sync mode only) ──────────────────────────────────
+  // Caches compiled sqlite3_stmt handles keyed by SQL string.
+  // Avoids re-calling sqlite3_prepare_v2 for repeated SQL (e.g. 1000 INSERTs
+  // with the same template). This mirrors NativeSQLite's cachedPrepare().
+  const stmtCache = new Map<string, ExpoSQLiteStatement>();
+  const MAX_CACHE_SIZE = 50;
+
+  function getCachedStmt(database: ExpoSQLiteDatabase, sql: string): ExpoSQLiteStatement | null {
+    if (!database.prepareSync) return null;
+
+    let stmt = stmtCache.get(sql);
+    if (stmt) return stmt;
+
+    // Evict oldest entry if cache is full
+    if (stmtCache.size >= MAX_CACHE_SIZE) {
+      const firstKey = stmtCache.keys().next().value!;
+      const evicted = stmtCache.get(firstKey);
+      stmtCache.delete(firstKey);
+      try { evicted?.finalizeSync(); } catch { /* already finalized */ }
+    }
+
+    try {
+      stmt = database.prepareSync(sql);
+      stmtCache.set(sql, stmt);
+      return stmt;
+    } catch {
+      return null; // Fall back to runSync/execSync
+    }
+  }
+
+  function clearStmtCache(): void {
+    for (const stmt of stmtCache.values()) {
+      try { stmt.finalizeSync(); } catch { /* ignore */ }
+    }
+    stmtCache.clear();
+  }
+
   // Lazily import expo-sqlite so this module can be imported
   // without expo-sqlite being installed (e.g. in tests).
   async function getExpoSQLite(): Promise<ExpoSQLiteModule> {
@@ -166,19 +218,38 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
       try {
         if (useSync && db.execSync) {
           db.execSync('PRAGMA journal_mode = WAL');
+          db.execSync('PRAGMA synchronous = NORMAL');
+          db.execSync('PRAGMA cache_size = -8000');
+          db.execSync('PRAGMA temp_store = MEMORY');
+          db.execSync('PRAGMA busy_timeout = 5000');
         } else {
           await db.execAsync('PRAGMA journal_mode = WAL');
+          await db.execAsync('PRAGMA synchronous = NORMAL');
+          await db.execAsync('PRAGMA cache_size = -8000');
+          await db.execAsync('PRAGMA temp_store = MEMORY');
+          await db.execAsync('PRAGMA busy_timeout = 5000');
         }
       } catch {
-        // WAL not supported on this platform (e.g. web wa-sqlite), continue without it
+        // PRAGMAs not supported on this platform (e.g. web wa-sqlite), continue without them
       }
     },
 
     async execute(sql: string, bindings?: unknown[]): Promise<void> {
       const database = requireDb();
+
+      // DDL statements invalidate cached prepared statements
+      if (stmtCache.size > 0 && /^\s*(DROP|CREATE|ALTER)\s/i.test(sql)) {
+        clearStmtCache();
+      }
+
       if (useSync && database.runSync) {
         if (bindings && bindings.length > 0) {
-          database.runSync(sql, ...bindings);
+          const stmt = getCachedStmt(database, sql);
+          if (stmt) {
+            stmt.executeSync(bindings);
+          } else {
+            database.runSync(sql, ...bindings);
+          }
         } else if (database.execSync) {
           database.execSync(sql);
         } else {
@@ -197,6 +268,11 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
       const database = requireDb();
       if (useSync && database.getAllSync) {
         if (bindings && bindings.length > 0) {
+          const stmt = getCachedStmt(database, sql);
+          if (stmt) {
+            const result = stmt.executeSync(bindings);
+            return result.getAllSync();
+          }
           return database.getAllSync(sql, ...bindings);
         }
         return database.getAllSync(sql);
@@ -284,6 +360,7 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
 
     async close(): Promise<void> {
       if (db) {
+        clearStmtCache();
         if (useSync && db.closeSync) {
           db.closeSync();
         } else {
@@ -304,7 +381,12 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
         );
       }
       if (bindings && bindings.length > 0) {
-        database.runSync(sql, ...bindings);
+        const stmt = getCachedStmt(database, sql);
+        if (stmt) {
+          stmt.executeSync(bindings);
+        } else {
+          database.runSync(sql, ...bindings);
+        }
       } else if (database.execSync) {
         database.execSync(sql);
       } else {
@@ -334,11 +416,16 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
       const database = requireDb();
       if (commands.length === 0) return;
 
-      // For sync mode, just loop — each call is ~0.02ms
+      // For sync mode, use cached prepared statements when possible
       if (useSync && database.runSync) {
         for (const [sql, bindings] of commands) {
           if (bindings && bindings.length > 0) {
-            database.runSync(sql, ...bindings);
+            const stmt = getCachedStmt(database, sql);
+            if (stmt) {
+              stmt.executeSync(bindings);
+            } else {
+              database.runSync(sql, ...bindings);
+            }
           } else if (database.execSync) {
             database.execSync(sql);
           } else {
@@ -366,13 +453,18 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
       const database = requireDb();
       if (commands.length === 0) return;
 
-      // For sync mode, use sync transaction
+      // For sync mode, use sync transaction with cached statements
       if (useSync && database.runSync && database.execSync) {
         database.execSync('BEGIN TRANSACTION');
         try {
           for (const [sql, bindings] of commands) {
             if (bindings && bindings.length > 0) {
-              database.runSync(sql, ...bindings);
+              const stmt = getCachedStmt(database, sql);
+              if (stmt) {
+                stmt.executeSync(bindings);
+              } else {
+                database.runSync(sql, ...bindings);
+              }
             } else {
               database.execSync(sql);
             }

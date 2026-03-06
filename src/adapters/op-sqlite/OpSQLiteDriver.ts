@@ -153,6 +153,9 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
       db.executeSync('PRAGMA journal_mode = WAL');
       // Busy timeout for concurrent access
       db.executeSync('PRAGMA busy_timeout = 5000');
+      db.executeSync('PRAGMA synchronous = NORMAL');
+      db.executeSync('PRAGMA cache_size = -8000');
+      db.executeSync('PRAGMA temp_store = MEMORY');
 
       // Install update hook if requested
       if (config?.onTableChanged) {

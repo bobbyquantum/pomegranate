@@ -5,10 +5,6 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "start:expo-sqlite": "EXPO_PUBLIC_ADAPTER=expo-sqlite expo start --clear",
-    "start:expo-sqlite-sync": "EXPO_PUBLIC_ADAPTER=expo-sqlite-sync expo start --clear",
-    "start:loki-memory": "EXPO_PUBLIC_ADAPTER=loki-memory expo start --clear",
-    "start:loki-idb": "EXPO_PUBLIC_ADAPTER=loki-idb expo start --web --clear",
     "prebuild": "cd ../.. && npm run build && npm pack",
     "reinstall": "npm run prebuild && npm install ../../pomegranate-db-0.1.0.tgz"
   },

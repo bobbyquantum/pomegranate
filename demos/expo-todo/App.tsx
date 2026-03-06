@@ -653,11 +653,9 @@ function MainContent({ adapterName }: { adapterName: string }) {
 const ADAPTER_OPTIONS: AdapterOption[] = [
   // CI-tested adapters first (must be visible without scrolling on 540px emulator)
   { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
-  { variant: 'expo-sqlite', name: 'ExpoSQLite (async)', label: 'Expo SQL' },
-  { variant: 'expo-sqlite-sync', name: 'ExpoSQLite (sync)', label: 'Expo Sync', nativeOnly: true },
+  { variant: 'expo-sqlite', name: 'ExpoSQLite (sync)', label: 'Expo SQL', nativeOnly: true },
   { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL', nativeOnly: true },
   { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI', nativeOnly: true },
-  { variant: 'op-sqlite-async', name: 'OpSQLite (async)', label: 'OpSQL Async', nativeOnly: true },
   { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
 ];
 
@@ -671,18 +669,6 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
   const dbName = `pomegranate-demo-${variant}`;
 
   if (variant === 'expo-sqlite') {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
-    return {
-      adapter: new SQLiteAdapter({
-        databaseName: dbName,
-        driver: createExpoSQLiteDriver(),
-      }),
-      name: 'ExpoSQLite (async)',
-    };
-  }
-
-  if (variant === 'expo-sqlite-sync') {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
     return {
@@ -703,18 +689,6 @@ function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter;
         driver: createOpSQLiteDriver(),
       }),
       name: 'OpSQLite (sync)',
-    };
-  }
-
-  if (variant === 'op-sqlite-async') {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
-    return {
-      adapter: new SQLiteAdapter({
-        databaseName: dbName,
-        driver: createOpSQLiteDriver({ preferSync: false }),
-      }),
-      name: 'OpSQLite (async)',
     };
   }
 
