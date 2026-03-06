@@ -686,6 +686,56 @@ function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter;
   };
 }
 
+// ─── Error Boundary ────────────────────────────────────────────────────────
+
+type ErrorBoundaryProps = { children: React.ReactNode; onRetry?: () => void };
+type ErrorBoundaryState = { error: Error | null };
+
+class DatabaseErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+
+    const isLockError =
+      /AccessHandle|NoModificationAllowedError|createSyncAccessHandle/i.test(error.message);
+
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+        <Text style={{ fontSize: 48, marginBottom: 16 }}>{isLockError ? '🔒' : '⚠️'}</Text>
+        <Text style={{ fontSize: 18, fontWeight: '700', color: '#333', textAlign: 'center', marginBottom: 8 }}>
+          {isLockError ? 'Database locked' : 'Something went wrong'}
+        </Text>
+        <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 24 }}>
+          {isLockError
+            ? 'The database file is open in another tab. Close other tabs using this app, then try again.'
+            : error.message}
+        </Text>
+        <Pressable
+          onPress={() => {
+            this.setState({ error: null });
+            this.props.onRetry?.();
+          }}
+          style={({ pressed }) => [{
+            backgroundColor: POMEGRANATE,
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 8,
+            opacity: pressed ? 0.8 : 1,
+          }]}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+}
+
 export default function App() {
   const [variant, setVariant] = useState(DEFAULT_VARIANT);
   const { adapter, name: adapterName } = useMemo(() => createAdapter(variant), [variant]);
@@ -700,18 +750,20 @@ export default function App() {
           selected={variant}
           onSelect={setVariant}
         />
-        <Suspense
-          fallback={
-            <View style={styles.loadingContent}>
-              <ActivityIndicator size="large" color={POMEGRANATE} />
-              <Text style={styles.loadingText}>Loading database…</Text>
-            </View>
-          }
-        >
-          <DatabaseSuspenseProvider key={variant} adapter={adapter} models={[Todo]}>
-            <MainContent adapterName={adapterName} />
-          </DatabaseSuspenseProvider>
-        </Suspense>
+        <DatabaseErrorBoundary onRetry={() => setVariant((v: string) => v)}>
+          <Suspense
+            fallback={
+              <View style={styles.loadingContent}>
+                <ActivityIndicator size="large" color={POMEGRANATE} />
+                <Text style={styles.loadingText}>Loading database…</Text>
+              </View>
+            }
+          >
+            <DatabaseSuspenseProvider key={variant} adapter={adapter} models={[Todo]}>
+              <MainContent adapterName={adapterName} />
+            </DatabaseSuspenseProvider>
+          </Suspense>
+        </DatabaseErrorBoundary>
       </SafeAreaView>
     </SafeAreaProvider>
   );
