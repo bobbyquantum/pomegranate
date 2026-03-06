@@ -404,11 +404,13 @@ jobs:
 
             # Clear app data for a fair benchmark (fresh DB each run)
             xcrun simctl terminate "$SIMULATOR_UDID" com.pomegranatedb.todo.demo 2>/dev/null || true
+            sleep 2
             xcrun simctl privacy "$SIMULATOR_UDID" reset all com.pomegranatedb.todo.demo 2>/dev/null || true
             APP_DATA=$(xcrun simctl get_app_container "$SIMULATOR_UDID" com.pomegranatedb.todo.demo data 2>/dev/null || echo '')
             if [ -n "$APP_DATA" ]; then
               rm -rf "${APP_DATA}/Documents"/* "${APP_DATA}/Library"/* 2>/dev/null || true
             fi
+            sleep 1
 
             if maestro test --env "ADAPTER=${ADAPTER}" demos/expo-todo/maestro/; then
               echo "✅ $ADAPTER passed"

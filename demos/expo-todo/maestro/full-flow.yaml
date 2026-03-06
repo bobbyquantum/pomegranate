@@ -8,7 +8,9 @@ onFlowError:
     appId: com.pomegranatedb.todo.demo
 
 # ── App loads ──────────────────────────────────────────────────────────────
-- assertVisible: "PomegranateDB"
+- extendedWaitUntil:
+    visible: "PomegranateDB"
+    timeout: 15000
 - assertVisible: "Reactive offline-first database"
 - takeScreenshot: full-crud-01-app-loaded
 

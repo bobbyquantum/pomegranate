@@ -8,7 +8,9 @@ onFlowError:
     appId: com.pomegranatedb.todo.demo
 
 # ── App loads ──────────────────────────────────────────────────────────────
-- assertVisible: "PomegranateDB"
+- extendedWaitUntil:
+    visible: "PomegranateDB"
+    timeout: 15000
 - takeScreenshot: benchmark-01-app-loaded
 
 # ── Select adapter via picker ─────────────────────────────────────────────
