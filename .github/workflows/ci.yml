@@ -381,6 +381,8 @@ jobs:
           echo "$HOME/.maestro/bin" >> $GITHUB_PATH
 
       - name: Run Maestro flows (all adapters)
+        env:
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: 120000
         run: |
           export PATH="$HOME/.maestro/bin:$PATH"
           mkdir -p /tmp/benchmarks
@@ -616,6 +618,8 @@ jobs:
 
       - name: Run Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2.33.0
+        env:
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: 120000
         with:
           api-level: 29
           emulator-boot-timeout: 900
