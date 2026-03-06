@@ -647,7 +647,7 @@ function MainContent({ adapterName }: { adapterName: string }) {
 // ─── Adapter configuration ─────────────────────────────────────────────────
 
 const ADAPTER_OPTIONS: AdapterOption[] = [
-  { variant: 'expo-sqlite', name: 'ExpoSQLite (sync)', label: 'Expo SQL', nativeOnly: true },
+  { variant: 'expo-sqlite', name: 'ExpoSQLite', label: 'Expo SQL' },
   { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
   { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
 ];
@@ -676,13 +676,13 @@ function createAdapter(variant: string): { adapter: SQLiteAdapter | LokiAdapter;
     };
   }
 
-  // Default: expo-sqlite sync
+  // Default: expo-sqlite (sync on native, async on web — driver auto-detects)
   return {
     adapter: new SQLiteAdapter({
       databaseName: dbName,
       driver: createExpoSQLiteDriver({ preferSync: true }),
     }),
-    name: 'ExpoSQLite (sync)',
+    name: 'ExpoSQLite',
   };
 }
 
