@@ -1,0 +1,52 @@
+appId: com.pomegranatedb.todo.demo
+name: Run benchmarks
+onFlowError:
+  - takeScreenshot: benchmark-ERROR
+---
+- stopApp
+- launchApp:
+    appId: com.pomegranatedb.todo.demo
+
+# ── App loads ──────────────────────────────────────────────────────────────
+- extendedWaitUntil:
+    visible: "PomegranateDB"
+    timeout: 15000
+- takeScreenshot: benchmark-01-app-loaded
+
+# ── Select adapter via picker ─────────────────────────────────────────────
+- extendedWaitUntil:
+    visible:
+      id: "adapter-option-${ADAPTER}"
+    timeout: 30000
+- tapOn:
+    id: "adapter-option-${ADAPTER}"
+- extendedWaitUntil:
+    visible:
+      id: "tab-todos"
+    timeout: 30000
+- takeScreenshot: benchmark-02-adapter-selected
+
+# ── Navigate to benchmarks tab ────────────────────────────────────────────
+- tapOn:
+    id: "tab-benchmarks"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "benchmark-title"
+- takeScreenshot: benchmark-03-tab-opened
+
+# ── Run benchmarks ────────────────────────────────────────────────────────
+- tapOn:
+    id: "benchmark-btn"
+
+# Wait for benchmarks to complete (may take several minutes on CI emulators)
+- extendedWaitUntil:
+    visible:
+      id: "benchmark-complete"
+    timeout: 600000
+
+- takeScreenshot: benchmark-04-results
+
+# ── Verify results are displayed ──────────────────────────────────────────
+- assertVisible:
+    id: "benchmark-summary"
+- takeScreenshot: benchmark-05-done

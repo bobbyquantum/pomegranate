@@ -157,8 +157,17 @@ export class Database implements ModelDatabaseRef {
         this._isInWriter = true;
         this._events$.next({ type: 'write_started' });
         try {
-          const result = await fn();
-          resolve(result);
+          let result: T;
+          if (this._adapter.writeTransaction) {
+            // Wrap all mutations in a single database transaction
+            // (one BEGIN/COMMIT = one fsync instead of per-statement autocommit)
+            await this._adapter.writeTransaction(async () => {
+              result = await fn();
+            });
+          } else {
+            result = await fn();
+          }
+          resolve(result!);
         } catch (error) {
           reject(error);
         } finally {
@@ -204,6 +213,18 @@ export class Database implements ModelDatabaseRef {
   async batch(operations: BatchOperation[]): Promise<void> {
     this._ensureInWriter('Database.batch()');
     await this._adapter.batch(operations);
+
+    // Notify affected collections so live queries / observers update
+    const affectedTables = new Set(operations.map((op) => op.table));
+    for (const table of affectedTables) {
+      const collection = this._collections.get(table);
+      if (collection) {
+        // Fire a single synthetic notification per table to trigger re-queries.
+        // We use 'updated' with a minimal record since observers only check
+        // that *something* changed on the collection.
+        collection._notifyChange('updated', { id: '__batch__' } as Model);
+      }
+    }
   }
 
   /** @internal used by Model */

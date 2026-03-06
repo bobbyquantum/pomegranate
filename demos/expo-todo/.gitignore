@@ -7,3 +7,5 @@ android/
 *.tgz
 test-results/
 playwright-report/
+benchmark-results/
+benchmark-*.png

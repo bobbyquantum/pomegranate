@@ -6,21 +6,44 @@
  * using the Expo managed SQLite library instead of requiring
  * react-native-quick-sqlite or op-sqlite.
  *
+ * Supports both **async** and **sync** modes:
+ *   - `preferSync: false` (default) — uses async APIs (runAsync, getAllAsync).
+ *     Works on all platforms including web (wa-sqlite / OPFS).
+ *   - `preferSync: true` — uses synchronous JSI APIs (runSync, getAllSync).
+ *     Faster on native (no Promise overhead) but NOT available on web.
+ *     Falls back to async automatically on web.
+ *
  * Usage:
  *   import { createExpoSQLiteDriver } from 'pomegranate-db/expo';
  *   import { SQLiteAdapter } from 'pomegranate-db';
  *
- *   const adapter = new SQLiteAdapter({
- *     databaseName: 'myapp',
- *     driver: createExpoSQLiteDriver(),
- *   });
+ *   // Async (default — works everywhere)
+ *   const driver = createExpoSQLiteDriver();
+ *
+ *   // Sync (native-only, falls back to async on web)
+ *   const driverSync = createExpoSQLiteDriver({ preferSync: true });
  */
 
 import type { SQLiteDriver } from '../sqlite/SQLiteAdapter';
 
-// We import the types only; the actual module is a peer dependency
-// that must be installed by the consumer.
+// ─── Expo SQLite Types ────────────────────────────────────────────────────
+// We define minimal types for both async and sync APIs so we don't require
+// expo-sqlite as a direct dependency — it's a peer dependency.
+
+type ExpoSQLiteStatementResult = {
+  readonly lastInsertRowId: number;
+  readonly changes: number;
+  resetSync(): void;
+  getAllSync<T = Record<string, unknown>>(): T[];
+};
+
+type ExpoSQLiteStatement = {
+  executeSync(params: unknown[]): ExpoSQLiteStatementResult;
+  finalizeSync(): void;
+};
+
 type ExpoSQLiteDatabase = {
+  // Async API (always available)
   execAsync(source: string): Promise<void>;
   runAsync(
     source: string,
@@ -29,6 +52,19 @@ type ExpoSQLiteDatabase = {
   getAllAsync<T = Record<string, unknown>>(source: string, ...params: unknown[]): Promise<T[]>;
   withExclusiveTransactionAsync(task: (txn: ExpoSQLiteDatabase) => Promise<void>): Promise<void>;
   closeAsync(): Promise<void>;
+
+  // Sync API (native only — not available on web)
+  execSync?(source: string): void;
+  runSync?(
+    source: string,
+    ...params: unknown[]
+  ): { lastInsertRowId: number; changes: number };
+  getAllSync?<T = Record<string, unknown>>(source: string, ...params: unknown[]): T[];
+  withTransactionSync?(task: () => void): void;
+  closeSync?(): void;
+
+  // Prepared statement API (native only)
+  prepareSync?(source: string): ExpoSQLiteStatement;
 };
 
 type ExpoSQLiteModule = {
@@ -36,15 +72,53 @@ type ExpoSQLiteModule = {
     databaseName: string,
     options?: { enableChangeListener?: boolean },
   ): Promise<ExpoSQLiteDatabase>;
+  openDatabaseSync?(
+    databaseName: string,
+    options?: { enableChangeListener?: boolean },
+  ): ExpoSQLiteDatabase;
 };
+
+// ─── Config ───────────────────────────────────────────────────────────────
 
 export interface ExpoSQLiteDriverConfig {
   /**
-   * Options passed to expo-sqlite's openDatabaseAsync.
+   * Options passed to expo-sqlite's openDatabaseAsync/openDatabaseSync.
    * @default {}
    */
   openOptions?: { enableChangeListener?: boolean };
+
+  /**
+   * When true, use synchronous JSI calls (runSync, getAllSync, etc.)
+   * for better performance on native platforms.
+   *
+   * On web (wa-sqlite), sync methods are not available — the driver
+   * will automatically fall back to async mode.
+   *
+   * @default false
+   */
+  preferSync?: boolean;
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Replace `?` placeholders in SQL with literal values.
+ *
+ * This is used for `execAsync(multiStatement)` which doesn't accept bindings.
+ * Safe because all values come from our own SQL generators with known types.
+ */
+function inlineBindings(sql: string, bindings: unknown[]): string {
+  let index = 0;
+  return sql.replaceAll('?', () => {
+    const val = bindings[index++];
+    if (val === null || val === undefined) return 'NULL';
+    if (typeof val === 'number') return String(val);
+    if (typeof val === 'boolean') return val ? '1' : '0';
+    return `'${String(val).replaceAll("'", "''")}'`;
+  });
+}
+
+// ─── Driver Factory ───────────────────────────────────────────────────────
 
 /**
  * Create a SQLiteDriver backed by expo-sqlite.
@@ -55,6 +129,46 @@ export interface ExpoSQLiteDriverConfig {
 export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteDriver {
   let db: ExpoSQLiteDatabase | null = null;
   let expoSQLite: ExpoSQLiteModule | null = null;
+
+  // Whether we're actually using sync mode (resolved after open)
+  let useSync = false;
+
+  // ── Statement cache (sync mode only) ──────────────────────────────────
+  // Caches compiled sqlite3_stmt handles keyed by SQL string.
+  // Avoids re-calling sqlite3_prepare_v2 for repeated SQL (e.g. 1000 INSERTs
+  // with the same template). This mirrors NativeSQLite's cachedPrepare().
+  const stmtCache = new Map<string, ExpoSQLiteStatement>();
+  const MAX_CACHE_SIZE = 50;
+
+  function getCachedStmt(database: ExpoSQLiteDatabase, sql: string): ExpoSQLiteStatement | null {
+    if (!database.prepareSync) return null;
+
+    let stmt = stmtCache.get(sql);
+    if (stmt) return stmt;
+
+    // Evict oldest entry if cache is full
+    if (stmtCache.size >= MAX_CACHE_SIZE) {
+      const firstKey = stmtCache.keys().next().value!;
+      const evicted = stmtCache.get(firstKey);
+      stmtCache.delete(firstKey);
+      try { evicted?.finalizeSync(); } catch { /* already finalized */ }
+    }
+
+    try {
+      stmt = database.prepareSync(sql);
+      stmtCache.set(sql, stmt);
+      return stmt;
+    } catch {
+      return null; // Fall back to runSync/execSync
+    }
+  }
+
+  function clearStmtCache(): void {
+    for (const stmt of stmtCache.values()) {
+      try { stmt.finalizeSync(); } catch { /* ignore */ }
+    }
+    stmtCache.clear();
+  }
 
   // Lazily import expo-sqlite so this module can be imported
   // without expo-sqlite being installed (e.g. in tests).
@@ -82,29 +196,85 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
   return {
     async open(name: string): Promise<void> {
       const sqlite = await getExpoSQLite();
-      db = await sqlite.openDatabaseAsync(
-        name.endsWith('.db') ? name : `${name}.db`,
-        config?.openOptions,
-      );
+      const dbName = name.endsWith('.db') ? name : `${name}.db`;
+
+      // Try sync open if preferred and available
+      if (config?.preferSync && typeof sqlite.openDatabaseSync === 'function') {
+        try {
+          db = sqlite.openDatabaseSync(dbName, config?.openOptions);
+          useSync = true;
+        } catch {
+          // openDatabaseSync not supported (e.g. web) — fall through
+        }
+      }
+
+      // Async fallback (or default path)
+      if (!db) {
+        db = await sqlite.openDatabaseAsync(dbName, config?.openOptions);
+        useSync = false;
+      }
+
       // Enable WAL mode for better performance (may not be supported on web/wa-sqlite)
       try {
-        await db.execAsync('PRAGMA journal_mode = WAL');
+        if (useSync && db.execSync) {
+          db.execSync('PRAGMA journal_mode = WAL');
+          db.execSync('PRAGMA synchronous = NORMAL');
+          db.execSync('PRAGMA cache_size = -8000');
+          db.execSync('PRAGMA temp_store = MEMORY');
+          db.execSync('PRAGMA busy_timeout = 5000');
+        } else {
+          await db.execAsync('PRAGMA journal_mode = WAL');
+          await db.execAsync('PRAGMA synchronous = NORMAL');
+          await db.execAsync('PRAGMA cache_size = -8000');
+          await db.execAsync('PRAGMA temp_store = MEMORY');
+          await db.execAsync('PRAGMA busy_timeout = 5000');
+        }
       } catch {
-        // WAL not supported on this platform (e.g. web wa-sqlite), continue without it
+        // PRAGMAs not supported on this platform (e.g. web wa-sqlite), continue without them
       }
     },
 
     async execute(sql: string, bindings?: unknown[]): Promise<void> {
       const database = requireDb();
-      if (bindings && bindings.length > 0) {
-        await database.runAsync(sql, ...bindings);
+
+      // DDL statements invalidate cached prepared statements
+      if (stmtCache.size > 0 && /^\s*(DROP|CREATE|ALTER)\s/i.test(sql)) {
+        clearStmtCache();
+      }
+
+      if (useSync && database.runSync) {
+        if (bindings && bindings.length > 0) {
+          const stmt = getCachedStmt(database, sql);
+          if (stmt) {
+            stmt.executeSync(bindings);
+          } else {
+            database.runSync(sql, ...bindings);
+          }
+        } else if (database.execSync) {
+          database.execSync(sql);
+        } else {
+          database.runSync(sql);
+        }
       } else {
-        await database.execAsync(sql);
+        if (bindings && bindings.length > 0) {
+          await database.runAsync(sql, ...bindings);
+        } else {
+          await database.execAsync(sql);
+        }
       }
     },
 
     async query(sql: string, bindings?: unknown[]): Promise<Record<string, unknown>[]> {
       const database = requireDb();
+      if (useSync && database.getAllSync) {
+        // Use database.getAllSync directly (no statement cache for queries).
+        // The bulk row transfer in getAllSync is faster than iterating via
+        // a prepared statement's getAllSync for large result sets.
+        if (bindings && bindings.length > 0) {
+          return database.getAllSync(sql, ...bindings);
+        }
+        return database.getAllSync(sql);
+      }
       if (bindings && bindings.length > 0) {
         return database.getAllAsync(sql, ...bindings);
       }
@@ -113,43 +283,209 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
 
     async executeInTransaction(fn: () => Promise<void>): Promise<void> {
       const database = requireDb();
-      // expo-sqlite's withExclusiveTransactionAsync is not supported on web.
-      // Fall back to manual BEGIN/COMMIT/ROLLBACK for web compatibility.
-      if (typeof database.withExclusiveTransactionAsync === 'function') {
+
+      // Sync transaction path (native only)
+      if (useSync && database.withTransactionSync) {
         try {
-          await database.withExclusiveTransactionAsync(async (_txn) => {
-            // expo-sqlite's exclusive transaction scopes all queries
-            // on this database connection to the transaction, so we
-            // can just call fn() which uses the same `db` reference.
-            await fn();
+          database.withTransactionSync(() => {
+            // NOTE: fn() returns a Promise but our sync transaction
+            // callback is synchronous. The inner operations will also
+            // be sync (since useSync=true), so the await is a no-op.
+            // We run the promise synchronously via the micro-task trick.
+            let error: unknown;
+            let done = false;
+            fn().then(
+              () => { done = true; },
+              (error_) => { error = error_; done = true; },
+            );
+            // In sync mode all awaits inside fn() resolve immediately
+            // (they're wrapping synchronous calls), so done should be true.
+            if (!done) {
+              throw new Error(
+                'ExpoSQLiteDriver: async operations inside sync transaction are not supported. ' +
+                  'Use preferSync: false for mixed async/sync workloads.',
+              );
+            }
+            if (error) throw error;
           });
           return;
-        } catch (e: unknown) {
-          // On web, withExclusiveTransactionAsync throws even though the method exists.
-          // Detect this and fall through to manual transaction handling.
-          if (e instanceof Error && e.message.includes('not supported on web')) {
-            // Fall through to manual transaction below
+        } catch (error: unknown) {
+          if (error instanceof Error && error.message.includes('not supported on web')) {
+            // Fall through to async
           } else {
-            throw e;
+            throw error;
           }
         }
       }
+
+      // Async transaction path
+      if (typeof database.withExclusiveTransactionAsync === 'function') {
+        try {
+          await database.withExclusiveTransactionAsync(async (_txn) => {
+            await fn();
+          });
+          return;
+        } catch (error: unknown) {
+          if (error instanceof Error && error.message.includes('not supported on web')) {
+            // Fall through to manual transaction below
+          } else {
+            throw error;
+          }
+        }
+      }
+
       // Manual transaction fallback (web, or platforms without exclusive transactions)
-      await database.execAsync('BEGIN TRANSACTION');
-      try {
-        await fn();
-        await database.execAsync('COMMIT');
-      } catch (e) {
-        await database.execAsync('ROLLBACK');
-        throw e;
+      if (useSync && database.execSync) {
+        database.execSync('BEGIN TRANSACTION');
+        try {
+          await fn();
+          database.execSync('COMMIT');
+        } catch (error) {
+          database.execSync('ROLLBACK');
+          throw error;
+        }
+      } else {
+        await database.execAsync('BEGIN TRANSACTION');
+        try {
+          await fn();
+          await database.execAsync('COMMIT');
+        } catch (error) {
+          await database.execAsync('ROLLBACK');
+          throw error;
+        }
       }
     },
 
     async close(): Promise<void> {
       if (db) {
-        await db.closeAsync();
+        clearStmtCache();
+        if (useSync && db.closeSync) {
+          db.closeSync();
+        } else {
+          await db.closeAsync();
+        }
         db = null;
       }
+    },
+
+    // ── Raw sync/async for benchmarking ──────────────────────────────────
+
+    executeSync(sql: string, bindings?: unknown[]): void {
+      const database = requireDb();
+      if (!database.runSync) {
+        throw new Error(
+          'ExpoSQLiteDriver: sync API not available (web platform). ' +
+            'Set preferSync: true and run on native.',
+        );
+      }
+      if (bindings && bindings.length > 0) {
+        const stmt = getCachedStmt(database, sql);
+        if (stmt) {
+          stmt.executeSync(bindings);
+        } else {
+          database.runSync(sql, ...bindings);
+        }
+      } else if (database.execSync) {
+        database.execSync(sql);
+      } else {
+        database.runSync(sql);
+      }
+    },
+
+    async executeAsync(sql: string, bindings?: unknown[]): Promise<void> {
+      const database = requireDb();
+      if (bindings && bindings.length > 0) {
+        await database.runAsync(sql, ...bindings);
+      } else {
+        await database.execAsync(sql);
+      }
+    },
+
+    // ── Batch without transaction wrapping ──────────────────────────────
+    // Uses execAsync with concatenated SQL to send all commands in a
+    // single native call. This avoids per-statement async bridge overhead
+    // which is the main bottleneck for expo-sqlite async mode.
+    //
+    // Values are inlined using SQLite literal escaping. This is safe
+    // because all values come from our own SQL generators (insertSQL,
+    // updateSQL, deleteSQL) with known types.
+
+    async executeBatchNoTx(commands: Array<[string, unknown[]]>): Promise<void> {
+      const database = requireDb();
+      if (commands.length === 0) return;
+
+      // For sync mode, use cached prepared statements when possible
+      if (useSync && database.runSync) {
+        for (const [sql, bindings] of commands) {
+          if (bindings && bindings.length > 0) {
+            const stmt = getCachedStmt(database, sql);
+            if (stmt) {
+              stmt.executeSync(bindings);
+            } else {
+              database.runSync(sql, ...bindings);
+            }
+          } else if (database.execSync) {
+            database.execSync(sql);
+          } else {
+            database.runSync(sql);
+          }
+        }
+        return;
+      }
+
+      // Async mode: build a single SQL string with all statements.
+      // This sends one message across the async bridge instead of N.
+      const parts: string[] = [];
+      for (const [sql, bindings] of commands) {
+        if (!bindings || bindings.length === 0) {
+          parts.push(sql);
+        } else {
+          parts.push(inlineBindings(sql, bindings));
+        }
+      }
+      await database.execAsync(parts.join(';\n'));
+    },
+
+    // ── Batch with transaction wrapping (for use outside writeTransaction) ──
+    async executeBatch(commands: Array<[string, unknown[]]>): Promise<void> {
+      const database = requireDb();
+      if (commands.length === 0) return;
+
+      // For sync mode, use sync transaction with cached statements
+      if (useSync && database.runSync && database.execSync) {
+        database.execSync('BEGIN TRANSACTION');
+        try {
+          for (const [sql, bindings] of commands) {
+            if (bindings && bindings.length > 0) {
+              const stmt = getCachedStmt(database, sql);
+              if (stmt) {
+                stmt.executeSync(bindings);
+              } else {
+                database.runSync(sql, ...bindings);
+              }
+            } else {
+              database.execSync(sql);
+            }
+          }
+          database.execSync('COMMIT');
+        } catch (error) {
+          database.execSync('ROLLBACK');
+          throw error;
+        }
+        return;
+      }
+
+      // Async mode: concatenate with BEGIN/COMMIT wrapping
+      const parts: string[] = ['BEGIN TRANSACTION'];
+      for (const [sql, bindings] of commands) {
+        if (!bindings || bindings.length === 0) {
+          parts.push(sql);
+        } else {
+          parts.push(inlineBindings(sql, bindings));
+        }
+      }
+      parts.push('COMMIT');
+      await database.execAsync(parts.join(';\n'));
     },
   };
 }

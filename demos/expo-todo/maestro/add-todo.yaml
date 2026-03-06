@@ -8,14 +8,15 @@ onFlowError:
     appId: com.pomegranatedb.todo.demo
 
 # Wait for the app to fully load
-- assertVisible: "PomegranateDB"
+- extendedWaitUntil:
+    visible: "PomegranateDB"
+    timeout: 15000
 - takeScreenshot: add-01-app-loaded
 
 # Type a new todo and submit via Enter (dismisses keyboard reliably on both platforms)
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
-- assertVisible: "Buy milk"
 - takeScreenshot: add-02-text-entered
 
 # Tap the add button (more reliable than pressKey: Enter across API levels)

@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM"],
     "jsx": "react-native",
     "strict": true,
     "esModuleInterop": true,
@@ -13,8 +13,8 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["jest"]
+    "types": ["jest", "node"]
   },
-  "include": ["**/*.ts", "**/*.tsx"],
+  "include": ["**/*.ts", "**/*.tsx", "../shared/**/*.ts"],
   "exclude": ["**/node_modules", "**/Pods"]
 }

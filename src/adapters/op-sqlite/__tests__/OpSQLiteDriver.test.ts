@@ -144,14 +144,24 @@ describe('createOpSQLiteDriver', () => {
   // ─── execute() ─────────────────────────────────────────────────────────
 
   describe('execute()', () => {
-    it('delegates to db.execute()', async () => {
+    it('delegates to db.execute() in async mode', async () => {
       const db = mockOpSQLite();
-      const driver = createOpSQLiteDriver();
+      const driver = createOpSQLiteDriver({ preferSync: false });
       await driver.open('db');
 
       await driver.execute('INSERT INTO foo VALUES (?)', [99]);
 
       expect(db.execute).toHaveBeenCalledWith('INSERT INTO foo VALUES (?)', [99]);
+    });
+
+    it('delegates to db.executeSync() in sync mode', async () => {
+      const db = mockOpSQLite();
+      const driver = createOpSQLiteDriver({ preferSync: true });
+      await driver.open('db');
+
+      await driver.execute('INSERT INTO foo VALUES (?)', [99]);
+
+      expect(db.executeSync).toHaveBeenCalledWith('INSERT INTO foo VALUES (?)', [99]);
     });
 
     it('throws when called before open()', async () => {
@@ -165,10 +175,21 @@ describe('createOpSQLiteDriver', () => {
   // ─── query() ───────────────────────────────────────────────────────────
 
   describe('query()', () => {
-    it('returns the rows array from the result', async () => {
+    it('returns the rows array from the result (async mode)', async () => {
       const rows = [{ id: 'x', name: 'test' }];
       mockOpSQLite(makeMockDb({ execute: jest.fn().mockResolvedValue({ rows, rowsAffected: 0 }) }));
-      const driver = createOpSQLiteDriver();
+      const driver = createOpSQLiteDriver({ preferSync: false });
+      await driver.open('db');
+
+      const result = await driver.query('SELECT * FROM items WHERE id = ?', ['x']);
+
+      expect(result).toEqual(rows);
+    });
+
+    it('returns the rows array from the result (sync mode)', async () => {
+      const rows = [{ id: 'x', name: 'test' }];
+      mockOpSQLite(makeMockDb({ executeSync: jest.fn().mockReturnValue({ rows, rowsAffected: 0 }) }));
+      const driver = createOpSQLiteDriver({ preferSync: true });
       await driver.open('db');
 
       const result = await driver.query('SELECT * FROM items WHERE id = ?', ['x']);
@@ -187,9 +208,9 @@ describe('createOpSQLiteDriver', () => {
   // ─── executeInTransaction() ────────────────────────────────────────────
 
   describe('executeInTransaction()', () => {
-    it('wraps callback in a db.transaction()', async () => {
+    it('wraps callback in a db.transaction() (async mode)', async () => {
       const db = mockOpSQLite();
-      const driver = createOpSQLiteDriver();
+      const driver = createOpSQLiteDriver({ preferSync: false });
       await driver.open('db');
 
       const callback = jest.fn();
@@ -199,14 +220,27 @@ describe('createOpSQLiteDriver', () => {
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it('propagates errors from the callback', async () => {
+    it('uses manual BEGIN/COMMIT in sync mode', async () => {
+      const db = mockOpSQLite();
+      const driver = createOpSQLiteDriver({ preferSync: true });
+      await driver.open('db');
+
+      const callback = jest.fn();
+      await driver.executeInTransaction(callback);
+
+      expect(db.executeSync).toHaveBeenCalledWith('BEGIN EXCLUSIVE TRANSACTION');
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(db.executeSync).toHaveBeenCalledWith('COMMIT');
+    });
+
+    it('propagates errors from the callback (async mode)', async () => {
       const boom = new Error('tx failed');
       mockOpSQLite(
         makeMockDb({
           transaction: jest.fn().mockRejectedValue(boom),
         }),
       );
-      const driver = createOpSQLiteDriver();
+      const driver = createOpSQLiteDriver({ preferSync: false });
       await driver.open('db');
 
       await expect(

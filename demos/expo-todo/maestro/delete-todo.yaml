@@ -8,7 +8,9 @@ onFlowError:
     appId: com.pomegranatedb.todo.demo
 
 # Wait for app to fully load
-- assertVisible: "PomegranateDB"
+- extendedWaitUntil:
+    visible: "PomegranateDB"
+    timeout: 15000
 - takeScreenshot: delete-01-app-loaded
 
 # Seed sample todos (avoids keyboard; proven reliable across all adapters)

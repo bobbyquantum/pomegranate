@@ -84,6 +84,18 @@ export interface OpSQLiteDriverConfig {
    * Useful for driving reactive queries / cache invalidation.
    */
   onTableChanged?: (table: string, operation: 'INSERT' | 'UPDATE' | 'DELETE') => void;
+
+  /**
+   * When true (default), use synchronous JSI calls (executeSync)
+   * for maximum performance — same approach as WatermelonDB.
+   *
+   * When false, use the async execute() API which dispatches to
+   * a worker thread. Slightly slower per-operation but doesn't
+   * block the JS thread during execution.
+   *
+   * @default true
+   */
+  preferSync?: boolean;
 }
 
 // ─── Driver Factory ───────────────────────────────────────────────────────
@@ -97,6 +109,7 @@ export interface OpSQLiteDriverConfig {
 export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDriver {
   let db: OpSQLiteDatabase | null = null;
   let opSQLite: OpSQLiteModule | null = null;
+  const useSync = config?.preferSync !== false; // default: true
 
   async function getOpSQLite(): Promise<OpSQLiteModule> {
     if (!opSQLite) {
@@ -140,6 +153,9 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
       db.executeSync('PRAGMA journal_mode = WAL');
       // Busy timeout for concurrent access
       db.executeSync('PRAGMA busy_timeout = 5000');
+      db.executeSync('PRAGMA synchronous = NORMAL');
+      db.executeSync('PRAGMA cache_size = -8000');
+      db.executeSync('PRAGMA temp_store = MEMORY');
 
       // Install update hook if requested
       if (config?.onTableChanged) {
@@ -152,22 +168,51 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
 
     async execute(sql: string, bindings?: unknown[]): Promise<void> {
       const database = requireDb();
-      await database.execute(sql, bindings);
+      if (useSync) {
+        database.executeSync(sql, bindings ?? []);
+      } else {
+        await database.execute(sql, bindings);
+      }
     },
 
     async query(sql: string, bindings?: unknown[]): Promise<Record<string, unknown>[]> {
       const database = requireDb();
+      if (useSync) {
+        const result = database.executeSync(sql, bindings ?? []);
+        return result.rows;
+      }
       const result = await database.execute(sql, bindings);
       return result.rows;
     },
 
     async executeInTransaction(fn: () => Promise<void>): Promise<void> {
       const database = requireDb();
-      await database.transaction(async (_tx) => {
-        // op-sqlite's transaction scopes all operations on the
-        // connection to the transaction, similar to expo-sqlite.
-        await fn();
-      });
+      if (useSync) {
+        // Manual sync transaction — avoids async round-trips
+        database.executeSync('BEGIN EXCLUSIVE TRANSACTION');
+        try {
+          await fn();
+          database.executeSync('COMMIT');
+        } catch (error) {
+          database.executeSync('ROLLBACK');
+          throw error;
+        }
+      } else {
+        // Async transaction via op-sqlite's transaction() wrapper
+        await database.transaction(async (_tx) => {
+          await fn();
+        });
+      }
+    },
+
+    async executeBatch(commands: Array<[string, unknown[]]>): Promise<void> {
+      const database = requireDb();
+      // op-sqlite's executeBatch sends all commands to C++ in a single
+      // JSI call and runs them in one transaction — no per-statement
+      // round-trips between JS and native.
+      await database.executeBatch(
+        commands.map(([sql, bindings]) => [sql, bindings] as [string, unknown[]]),
+      );
     },
 
     async close(): Promise<void> {
@@ -176,6 +221,18 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
         db.close();
         db = null;
       }
+    },
+
+    // ── Raw sync/async for benchmarking ──────────────────────────────────
+
+    executeSync(sql: string, bindings?: unknown[]): void {
+      const database = requireDb();
+      database.executeSync(sql, bindings ?? []);
+    },
+
+    async executeAsync(sql: string, bindings?: unknown[]): Promise<void> {
+      const database = requireDb();
+      await database.execute(sql, bindings);
     },
   };
 }

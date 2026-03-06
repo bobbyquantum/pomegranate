@@ -12,7 +12,7 @@
 
 import type { StorageAdapter, AdapterConfig, EncryptionConfig, Migration } from '../types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../../query/types';
-import type { DatabaseSchema, RawRecord, TableSchema } from '../../schema/types';
+import type { DatabaseSchema, RawRecord } from '../../schema/types';
 import {
   createTableSQL,
   selectSQL,
@@ -39,6 +39,41 @@ export interface SQLiteDriver {
   query(sql: string, bindings?: unknown[]): Promise<Record<string, unknown>[]>;
   executeInTransaction(fn: () => Promise<void>): Promise<void>;
   close(): Promise<void>;
+
+  /**
+   * Optional: direct synchronous execute, bypassing the async Promise wrapping.
+   * Available on drivers that support JSI sync calls (op-sqlite, native-sqlite,
+   * expo-sqlite in preferSync mode). Used by benchmarks for apples-to-apples
+   * sync-vs-async comparisons.
+   */
+  executeSync?(sql: string, bindings?: unknown[]): void;
+
+  /**
+   * Optional: explicitly async execute, always going through the async path
+   * even when the driver is configured for sync mode.
+   * Used by benchmarks to measure async overhead.
+   */
+  executeAsync?(sql: string, bindings?: unknown[]): Promise<void>;
+
+  /**
+   * Optional: execute multiple statements in a single native call.
+   * When provided, SQLiteAdapter.batch() will prefer this over
+   * looping individual execute() calls inside a transaction.
+   *
+   * Each command is a [sql, bindings] tuple. The driver should
+   * execute them atomically (in a single transaction).
+   */
+  executeBatch?(commands: Array<[string, unknown[]]>): Promise<void>;
+
+  /**
+   * Optional: like executeBatch but without wrapping in a transaction.
+   * Used when the adapter has already opened a transaction (BEGIN IMMEDIATE)
+   * and we want to run many commands in a single native call without nesting.
+   *
+   * If not provided, the adapter falls back to looping individual execute()
+   * calls (still fast for sync drivers, but slow for async-only drivers).
+   */
+  executeBatchNoTx?(commands: Array<[string, unknown[]]>): Promise<void>;
 }
 
 // ─── SQLite Adapter Config ────────────────────────────────────────────────
@@ -57,6 +92,7 @@ export class SQLiteAdapter implements StorageAdapter {
   private _databaseName: string;
   private _encryption?: EncryptionConfig;
   private _initialized = false;
+  private _inWriteTransaction = false;
 
   constructor(config: SQLiteAdapterConfig) {
     this._databaseName = config.databaseName;
@@ -126,7 +162,7 @@ export class SQLiteAdapter implements StorageAdapter {
   async count(query: QueryDescriptor): Promise<number> {
     const { sql, bindings } = countSQL(query);
     const rows = await this._driver.query(sql, bindings);
-    return (rows[0] as any)?.count ?? 0;
+    return (rows[0] as Record<string, unknown>)?.count as number ?? 0;
   }
 
   async findById(table: string, id: string): Promise<RawRecord | null> {
@@ -155,37 +191,102 @@ export class SQLiteAdapter implements StorageAdapter {
     await this._driver.execute(sql, bindings);
   }
 
+  // ─── Write Transaction ──────────────────────────────────────────────
+
+  async writeTransaction(fn: () => Promise<void>): Promise<void> {
+    if (this._inWriteTransaction) {
+      // Already inside a transaction — just run the function directly
+      await fn();
+      return;
+    }
+    this._inWriteTransaction = true;
+    try {
+      // Use manual BEGIN/COMMIT instead of driver.executeInTransaction()
+      // because the inner fn() goes through async adapter methods (insert,
+      // update, etc.) which use `await`. Even when the driver is in sync
+      // mode, `await` yields to the microtask queue, so the sync
+      // transaction wrappers (withTransactionSync) can't work.
+      //
+      // Manual BEGIN/COMMIT is safe because all execute() calls on the
+      // same connection will be inside this transaction until COMMIT.
+      await this._driver.execute('BEGIN IMMEDIATE');
+      try {
+        await fn();
+        await this._driver.execute('COMMIT');
+      } catch (error) {
+        try {
+          await this._driver.execute('ROLLBACK');
+        } catch {
+          // Rollback failed — connection may be in a bad state, but
+          // we still want to surface the original error.
+        }
+        throw error;
+      }
+    } finally {
+      this._inWriteTransaction = false;
+    }
+  }
+
   // ─── Batch ──────────────────────────────────────────────────────────
 
   async batch(operations: BatchOperation[]): Promise<void> {
-    await this._driver.executeInTransaction(async () => {
-      for (const op of operations) {
-        switch (op.type) {
-          case 'create': {
-            const { sql, bindings } = insertSQL(op.table, op.rawRecord!);
-            await this._driver.execute(sql, bindings);
-            break;
-          }
-          case 'update': {
-            const { sql, bindings } = updateSQL(op.table, op.rawRecord!);
-            await this._driver.execute(sql, bindings);
-            break;
-          }
-          case 'delete':
-            await this._driver.execute(
-              `UPDATE "${op.table}" SET "_status" = 'deleted' WHERE "id" = ?`,
-              [op.id!],
-            );
-            break;
-
-          case 'destroyPermanently': {
-            const { sql, bindings } = deleteSQL(op.table, op.id!);
-            await this._driver.execute(sql, bindings);
-            break;
-          }
+    // Build the list of [sql, bindings] tuples for all operations
+    const commands: Array<[string, unknown[]]> = [];
+    for (const op of operations) {
+      switch (op.type) {
+        case 'create': {
+          const { sql, bindings } = insertSQL(op.table, op.rawRecord!);
+          commands.push([sql, bindings]);
+          break;
+        }
+        case 'update': {
+          const { sql, bindings } = updateSQL(op.table, op.rawRecord!);
+          commands.push([sql, bindings]);
+          break;
+        }
+        case 'delete':
+          commands.push([
+            `UPDATE "${op.table}" SET "_status" = 'deleted' WHERE "id" = ?`,
+            [op.id!],
+          ]);
+          break;
+        case 'destroyPermanently': {
+          const { sql, bindings } = deleteSQL(op.table, op.id!);
+          commands.push([sql, bindings]);
+          break;
         }
       }
-    });
+    }
+
+    // When already inside a writeTransaction (BEGIN IMMEDIATE), we must
+    // NOT use the driver's executeBatch — it wraps commands in its own
+    // transaction internally, and SQLite doesn't support nested transactions.
+    // That causes a deadlock / hang (the CI benchmark hang).
+    if (this._inWriteTransaction) {
+      if (this._driver.executeBatchNoTx) {
+        // Best path: single native call, no transaction wrapper.
+        // Critical for async drivers (expo-sqlite) where per-call overhead
+        // is high (~2ms). Turns 10K bridge crossings into 1.
+        await this._driver.executeBatchNoTx(commands);
+      } else {
+        // Sync drivers (op-sqlite, native-sqlite) are fast enough per-call
+        // that looping is acceptable (~0.02ms each).
+        for (const [sql, bindings] of commands) {
+          await this._driver.execute(sql, bindings);
+        }
+      }
+    } else if (this._driver.executeBatch) {
+      // Prefer the driver's native batch if available (single JSI call,
+      // single transaction — avoids per-statement round-trips).
+      await this._driver.executeBatch(commands);
+    } else {
+      // Fallback: loop individual execute() calls inside a transaction
+      await this._driver.executeInTransaction(async () => {
+        for (const [sql, bindings] of commands) {
+          await this._driver.execute(sql, bindings);
+        }
+      });
+    }
   }
 
   // ─── Search ──────────────────────────────────────────────────────────
@@ -199,7 +300,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
     return {
       records: rows as RawRecord[],
-      total: (countRows[0] as any)?.count ?? 0,
+      total: (countRows[0] as Record<string, unknown>)?.count as number ?? 0,
     };
   }
 

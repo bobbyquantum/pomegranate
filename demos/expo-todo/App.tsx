@@ -3,9 +3,8 @@
  *
  * Demonstrates: schema, models, CRUD, live queries, hooks, reactive observation.
  */
-import React, { useState, useCallback, useRef, Suspense } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect, Suspense } from 'react';
 import {
-  StyleSheet,
   Text,
   View,
   TextInput,
@@ -13,10 +12,12 @@ import {
   FlatList,
   ActivityIndicator,
   Keyboard,
-  SafeAreaView,
+  ScrollView,
   Image,
   Platform,
+  Alert,
 } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import {
   DatabaseSuspenseProvider,
@@ -28,19 +29,18 @@ import {
   SQLiteAdapter,
 } from 'pomegranate-db';
 import { Todo } from './src/database';
-
-// ─── Constants ─────────────────────────────────────────────────────────────
-
-const POMEGRANATE = '#c0392b';
-const POMEGRANATE_LIGHT = '#e74c3c';
-const POMEGRANATE_FAINT = '#fdf0ef';
-const GRAY_50 = '#fafafa';
-const GRAY_100 = '#f5f5f5';
-const GRAY_200 = '#eeeeee';
-const GRAY_400 = '#bdbdbd';
-const GRAY_500 = '#9e9e9e';
-const GRAY_700 = '#616161';
-const GRAY_900 = '#212121';
+import {
+  runBenchmarks,
+  formatMs,
+  formatOpsPerSec,
+  type BenchmarkSuite,
+} from '../shared/benchmarks';
+import {
+  styles,
+  POMEGRANATE,
+  GRAY_400,
+} from '../shared/styles';
+import { AdapterPicker, type AdapterOption } from '../shared/AdapterPicker';
 
 type Filter = 'all' | 'active' | 'completed';
 
@@ -262,9 +262,9 @@ function BottomActions() {
     );
     if (completed.length === 0) return;
     await db.write(async () => {
-      for (const t of completed) {
-        await t.destroyPermanently();
-      }
+      await db.batch(
+        completed.map((t) => ({ type: 'destroyPermanently' as const, table: 'todos', id: t.id })),
+      );
     });
   }, [db]);
 
@@ -297,20 +297,309 @@ function BottomActions() {
   );
 }
 
+// ─── DB Size / Download helpers ────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+/** Query SQLite file size via PRAGMA page_count × page_size */
+async function getDbFileSize(db: any): Promise<number | null> {
+  try {
+    const driver = db?._adapter?._driver;
+    if (!driver?.query) return null;
+    const [pc] = await driver.query('PRAGMA page_count');
+    const [ps] = await driver.query('PRAGMA page_size');
+    const pageCount = Number(pc?.page_count ?? pc?.['page_count'] ?? 0);
+    const pageSize = Number(ps?.page_size ?? ps?.['page_size'] ?? 0);
+    if (pageCount && pageSize) return pageCount * pageSize;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** List all files in OPFS (for debugging / download) */
+async function listOpfsFiles(): Promise<{ name: string; handle: any; size: number }[]> {
+  const root = await (navigator as any).storage.getDirectory();
+  const files: { name: string; handle: any; size: number }[] = [];
+  async function walk(dir: any, prefix: string) {
+    for await (const [name, handle] of dir) {
+      if (handle.kind === 'file') {
+        const f = await handle.getFile();
+        files.push({ name: prefix + name, handle, size: f.size });
+      } else if (handle.kind === 'directory') {
+        await walk(handle, prefix + name + '/');
+      }
+    }
+  }
+  await walk(root, '');
+  return files;
+}
+
+// "SQLite format 3\0" magic header (first 16 bytes of every SQLite file)
+const SQLITE_MAGIC = new Uint8Array([0x53,0x51,0x4c,0x69,0x74,0x65,0x20,0x66,0x6f,0x72,0x6d,0x61,0x74,0x20,0x33,0x00]);
+
+function findSqliteOffset(buf: ArrayBuffer): number {
+  const u8 = new Uint8Array(buf);
+  outer: for (let i = 0; i <= u8.length - SQLITE_MAGIC.length; i++) {
+    for (let j = 0; j < SQLITE_MAGIC.length; j++) {
+      if (u8[i + j] !== SQLITE_MAGIC[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+/**
+ * Extract and download the SQLite database from OPFS.
+ * wa-sqlite's OPFS VFS stores pages with a metadata prefix.
+ * We find "SQLite format 3" in the largest file and slice from there.
+ */
+async function extractAndDownloadDb(
+  setInfo: (s: string) => void,
+): Promise<void> {
+  if (Platform.OS !== 'web') return;
+  try {
+    const files = await listOpfsFiles();
+    const listing = files.map((f) => `${f.name} (${formatBytes(f.size)})`).join('\n');
+
+    const sorted = [...files].sort((a, b) => b.size - a.size);
+    if (sorted.length === 0) {
+      setInfo('No files in OPFS');
+      return;
+    }
+
+    const main = sorted[0];
+    const file = await main.handle.getFile();
+    const buf = await file.arrayBuffer();
+    const offset = findSqliteOffset(buf);
+
+    if (offset < 0) {
+      setInfo(`${listing}\n\nNo SQLite header found in ${main.name}`);
+      return;
+    }
+
+    const dbBytes = buf.slice(offset);
+    const blob = new Blob([dbBytes], { type: 'application/x-sqlite3' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'pomegranate.db';
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+    setInfo(`${listing}\n\nExtracted ${formatBytes(dbBytes.byteLength)} from ${main.name} (offset ${offset})`);
+  } catch (e: any) {
+    setInfo(`Error: ${e?.message ?? e}`);
+  }
+}
+
+// ─── Benchmark Panel ───────────────────────────────────────────────────────
+
+function BenchmarkPanel({ adapterName }: { adapterName: string }) {
+  const db = useDatabase();
+  const [suite, setSuite] = useState<BenchmarkSuite | null>(null);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [dbSize, setDbSize] = useState<number | null>(null);
+  const [opfsInfo, setOpfsInfo] = useState('');
+
+  const refreshSize = useCallback(async () => {
+    setDbSize(await getDbFileSize(db));
+  }, [db]);
+
+  // Refresh size on mount and after each benchmark
+  useEffect(() => { refreshSize(); }, [refreshSize]);
+
+  const handleRun = useCallback(async () => {
+    setRunning(true);
+    setSuite(null);
+    setProgress('Preparing…');
+    try {
+      const result = await runBenchmarks(
+        db,
+        Todo,
+        adapterName,
+        setProgress,
+      );
+      setSuite(result);
+      await refreshSize();
+    } catch (error) {
+      setProgress(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [db]);
+
+  const handleReset = useCallback(() => {
+    Alert.alert('Reset Database', 'This will delete all data and re-create the database. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reset',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await db.reset();
+            setSuite(null);
+            setProgress('Database reset ✓');
+          } catch (error) {
+            setProgress(`Reset failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        },
+      },
+    ]);
+  }, [db]);
+
+  const handleBulkInsert = useCallback(async () => {
+    setRunning(true);
+    setProgress('Inserting 500 todos…');
+    try {
+      await db.write(async () => {
+        for (let i = 0; i < 500; i++) {
+          await db.get(Todo).create({
+            title: `Todo #${i + 1}`,
+            isCompleted: i % 3 === 0,
+            priority: i % 5,
+            createdAt: new Date(),
+          });
+        }
+      });
+      setProgress('Inserted 500 todos ✓ (167 completed, 333 active)');
+      await refreshSize();
+    } catch (error) {
+      setProgress(`Insert failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [db, refreshSize]);
+
+  return (
+    <ScrollView style={styles.benchContainer} contentContainerStyle={styles.benchContent}>
+      <Text testID="benchmark-title" style={styles.benchTitle}>⚡ Database Benchmarks</Text>
+      <Text style={styles.benchDesc}>
+        Runs insert, query, update, and delete operations to measure adapter performance.
+      </Text>
+
+      {/* DB file size card */}
+      <View style={styles.dbSizeCard}>
+        <Text style={styles.dbSizeLabel}>Database size</Text>
+        <Text style={styles.dbSizeValue}>
+          {dbSize != null ? formatBytes(dbSize) : '—'}
+        </Text>
+        {Platform.OS === 'web' && (
+          <Pressable
+            onPress={() => extractAndDownloadDb(setOpfsInfo)}
+            style={({ pressed }) => [styles.downloadBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.downloadBtnText}>⬇ Download .db</Text>
+          </Pressable>
+        )}
+      </View>
+      {opfsInfo !== '' && (
+        <Text style={styles.opfsInfo}>{opfsInfo}</Text>
+      )}
+
+      <Pressable
+        testID="benchmark-btn"
+        onPress={handleRun}
+        disabled={running}
+        style={({ pressed }) => [
+          styles.benchButton,
+          running && styles.benchButtonDisabled,
+          pressed && !running && styles.benchButtonPressed,
+        ]}
+      >
+        {running ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.benchButtonText}>Run Benchmarks</Text>
+        )}
+      </Pressable>
+
+      <Pressable
+        onPress={handleReset}
+        disabled={running}
+        style={({ pressed }) => [
+          styles.benchButton,
+          styles.benchResetButton,
+          running && styles.benchButtonDisabled,
+          pressed && !running && { opacity: 0.7 },
+        ]}
+      >
+        <Text style={[styles.benchButtonText, styles.benchResetButtonText]}>🗑 Reset Database</Text>
+      </Pressable>
+
+      <Pressable
+        onPress={handleBulkInsert}
+        disabled={running}
+        style={({ pressed }) => [
+          styles.benchButton,
+          styles.benchResetButton,
+          running && styles.benchButtonDisabled,
+          pressed && !running && { opacity: 0.7 },
+        ]}
+      >
+        <Text style={[styles.benchButtonText, styles.benchResetButtonText]}>📦 Bulk Insert 500 Todos</Text>
+      </Pressable>
+
+      {(running || (!suite && progress)) && <Text style={styles.benchProgress}>{progress}</Text>}
+
+      {suite && (
+        <View testID="benchmark-complete" style={styles.benchResults}>
+          <View style={styles.benchSummary}>
+            <Text testID="benchmark-summary" style={styles.benchSummaryText}>
+              {suite.adapter} — Total: {formatMs(suite.totalMs)}
+            </Text>
+          </View>
+
+          {/* Table header */}
+          <View style={styles.benchTableRow}>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader, { flex: 2 }]}>Operation</Text>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader]}>Total</Text>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader]}>Avg</Text>
+            <Text style={[styles.benchTableCell, styles.benchTableHeader]}>ops/s</Text>
+          </View>
+
+          {/* Table rows */}
+          {suite.results.map((r, i) => (
+            <View
+              key={r.name}
+              style={[styles.benchTableRow, i % 2 === 0 && styles.benchTableRowAlt]}
+            >
+              <Text style={[styles.benchTableCell, { flex: 2 }]} numberOfLines={1}>
+                {r.name}
+              </Text>
+              <Text style={styles.benchTableCell}>{formatMs(r.totalMs)}</Text>
+              <Text style={styles.benchTableCell}>{formatMs(r.avgMs)}</Text>
+              <Text style={[styles.benchTableCell, styles.benchOps]}>
+                {formatOpsPerSec(r.opsPerSec)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
 // ─── Header ────────────────────────────────────────────────────────────────
 
-function Header() {
+function Header({ adapterName }: { adapterName: string }) {
   return (
     <View style={styles.header}>
-      <View style={styles.logoSquircle}>
-        <Image source={require('./assets/logo.png')} style={styles.logo} resizeMode="contain" />
-      </View>
-      <View style={styles.headerTextGroup}>
-        <Text style={styles.headerTitle}>PomegranateDB</Text>
-        <Text style={styles.headerSubtitle}>Reactive offline-first database</Text>
+      <View style={styles.headerTop}>
+        <View style={styles.logoSquircle}>
+          <Image source={require('./assets/logo.png')} style={styles.logo} resizeMode="contain" />
+        </View>
+        <View style={styles.headerTextGroup}>
+          <Text style={styles.headerTitle}>PomegranateDB</Text>
+          <Text style={styles.headerSubtitle}>Reactive offline-first database</Text>
+        </View>
       </View>
       <View style={styles.adapterBadge}>
-        <Text style={styles.adapterBadgeText}>{ADAPTER_NAME}</Text>
+        <Text style={styles.adapterBadgeText}>{adapterName}</Text>
       </View>
     </View>
   );
@@ -318,65 +607,97 @@ function Header() {
 
 // ─── Main App ──────────────────────────────────────────────────────────────
 
-function MainApp() {
+type Tab = 'todos' | 'benchmarks';
+
+function MainContent({ adapterName }: { adapterName: string }) {
+  const [tab, setTab] = useState<Tab>('todos');
+
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      <Header />
-      <AddTodo />
-      <TodoList />
-      <BottomActions />
-    </SafeAreaView>
+    <>
+      {/* Tab bar */}
+      <View style={styles.tabBar}>
+        <Pressable
+          testID="tab-todos"
+          onPress={() => setTab('todos')}
+          style={[styles.tab, tab === 'todos' && styles.tabActive]}
+        >
+          <Text style={[styles.tabText, tab === 'todos' && styles.tabTextActive]}>📝 Todos</Text>
+        </Pressable>
+        <Pressable
+          testID="tab-benchmarks"
+          onPress={() => setTab('benchmarks')}
+          style={[styles.tab, tab === 'benchmarks' && styles.tabActive]}
+        >
+          <Text style={[styles.tabText, tab === 'benchmarks' && styles.tabTextActive]}>⚡ Benchmarks</Text>
+        </Pressable>
+      </View>
+
+      {tab === 'todos' ? (
+        <>
+          <AddTodo />
+          <TodoList />
+          <BottomActions />
+        </>
+      ) : (
+        <BenchmarkPanel adapterName={adapterName} />
+      )}
+    </>
   );
 }
 
-// ─── Database setup (stable reference, outside render) ─────────────────────
+// ─── Adapter configuration ─────────────────────────────────────────────────
 //
-// Adapter is selected by the EXPO_PUBLIC_ADAPTER env var:
-//   loki-idb        LokiAdapter + IndexedDB (web default)
-//   loki-memory     LokiAdapter, no persistence (native default)
-//   expo-sqlite     SQLiteAdapter + expo-sqlite  (iOS / Android / web)
-//   op-sqlite       SQLiteAdapter + op-sqlite    (iOS / Android only)
-//   native-sqlite   SQLiteAdapter + JSI bridge   (iOS / Android only)
+// Each demo app defines the adapters it supports. The picker filters by
+// platform so users only see options that work on the current device.
 
-function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
-  const variant =
-    process.env.EXPO_PUBLIC_ADAPTER ??
-    (Platform.OS === 'web' ? 'loki-idb' : 'loki-memory');
+const ADAPTER_OPTIONS: AdapterOption[] = [
+  // CI-tested adapters first (must be visible without scrolling on 540px emulator)
+  { variant: 'loki-memory', name: 'Loki (memory)', label: 'Loki Mem' },
+  { variant: 'expo-sqlite', name: 'ExpoSQLite (sync)', label: 'Expo SQL', nativeOnly: true },
+  { variant: 'op-sqlite', name: 'OpSQLite (sync)', label: 'OpSQL', nativeOnly: true },
+  { variant: 'native-sqlite', name: 'NativeSQLite (JSI)', label: 'Native JSI', nativeOnly: true },
+  { variant: 'loki-idb', name: 'Loki + IndexedDB', label: 'Loki IDB', webOnly: true },
+];
+
+const DEFAULT_VARIANT =
+  process.env.EXPO_PUBLIC_ADAPTER ??
+  (Platform.OS === 'web' ? 'loki-idb' : 'loki-memory');
+
+function createAdapter(variant: string): { adapter: LokiAdapter | SQLiteAdapter; name: string } {
+  // Each variant gets its own database file to avoid "database is locked"
+  // errors when switching adapters (the old connection may not be closed yet).
+  const dbName = `pomegranate-demo-${variant}`;
 
   if (variant === 'expo-sqlite') {
-    // Requires expo-sqlite: npx expo install expo-sqlite
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createExpoSQLiteDriver } = require('pomegranate-db/expo');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
-        driver: createExpoSQLiteDriver(),
+        databaseName: dbName,
+        driver: createExpoSQLiteDriver({ preferSync: true }),
       }),
-      name: 'ExpoSQLite',
+      name: 'ExpoSQLite (sync)',
     };
   }
 
   if (variant === 'op-sqlite') {
-    // Requires @op-engineering/op-sqlite (native only, no web)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createOpSQLiteDriver } = require('pomegranate-db/op-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         driver: createOpSQLiteDriver(),
       }),
-      name: 'OpSQLite',
+      name: 'OpSQLite (sync)',
     };
   }
 
   if (variant === 'native-sqlite') {
-    // PomegranateDB's own JSI C++ bridge (native only, no web)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createNativeSQLiteDriver } = require('pomegranate-db/native-sqlite');
     return {
       adapter: new SQLiteAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         driver: createNativeSQLiteDriver(),
       }),
       name: 'NativeSQLite (JSI)',
@@ -388,321 +709,48 @@ function createAdapter(): { adapter: LokiAdapter | SQLiteAdapter; name: string }
     const IncrementalIDBAdapter = require('lokijs/src/incremental-indexeddb-adapter');
     return {
       adapter: new LokiAdapter({
-        databaseName: 'pomegranate-demo',
+        databaseName: dbName,
         persistenceAdapter: new IncrementalIDBAdapter(),
       }),
       name: 'Loki + IndexedDB',
     };
   }
 
-  // loki-memory (native default): pure in-memory, works on all platforms
+  // loki-memory (default): pure in-memory, works on all platforms
   return {
-    adapter: new LokiAdapter({ databaseName: 'pomegranate-demo' }),
+    adapter: new LokiAdapter({ databaseName: dbName }),
     name: 'Loki (memory)',
   };
 }
 
-const { adapter, name: ADAPTER_NAME } = createAdapter();
-
 export default function App() {
+  const [variant, setVariant] = useState(DEFAULT_VARIANT);
+  const { adapter, name: adapterName } = useMemo(() => createAdapter(variant), [variant]);
+
   return (
-    <Suspense
-      fallback={
-        <View style={styles.splash}>
-          <Image
-            source={require('./assets/logo.png')}
-            style={styles.splashLogo}
-            resizeMode="contain"
-          />
-          <ActivityIndicator size="large" color={POMEGRANATE} style={{ marginTop: 24 }} />
-          <Text style={styles.splashText}>Loading database…</Text>
-        </View>
-      }
-    >
-      <DatabaseSuspenseProvider adapter={adapter} models={[Todo]}>
-        <MainApp />
-      </DatabaseSuspenseProvider>
-    </Suspense>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="light" />
+        <Header adapterName={adapterName} />
+        <AdapterPicker
+          options={ADAPTER_OPTIONS}
+          selected={variant}
+          onSelect={setVariant}
+        />
+        <Suspense
+          fallback={
+            <View style={styles.loadingContent}>
+              <ActivityIndicator size="large" color={POMEGRANATE} />
+              <Text style={styles.loadingText}>Loading database…</Text>
+            </View>
+          }
+        >
+          <DatabaseSuspenseProvider key={variant} adapter={adapter} models={[Todo]}>
+            <MainContent adapterName={adapterName} />
+          </DatabaseSuspenseProvider>
+        </Suspense>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  // Layout
-  container: {
-    flex: 1,
-    backgroundColor: GRAY_50,
-  },
-
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: Platform.OS === 'web' ? 20 : 56,
-    paddingBottom: 18,
-    paddingHorizontal: 20,
-    backgroundColor: POMEGRANATE,
-  },
-  logoSquircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  logo: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-  },
-  headerTextGroup: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 0.3,
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 2,
-  },
-  adapterBadge: {
-    marginLeft: 8,
-    backgroundColor: 'rgba(0,0,0,0.20)',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    alignSelf: 'center',
-  },
-  adapterBadgeText: {
-    color: 'rgba(255,255,255,0.90)',
-    fontSize: 11,
-    fontWeight: '600' as const,
-    letterSpacing: 0.3,
-  },
-
-  // Input
-  inputCard: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: GRAY_200,
-    ...Platform.select({
-      web: { boxShadow: '0 1px 3px rgba(0,0,0,0.06)' },
-    }),
-  },
-  input: {
-    flex: 1,
-    height: 46,
-    borderWidth: 1,
-    borderColor: GRAY_200,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    backgroundColor: GRAY_100,
-    color: GRAY_900,
-  },
-  addBtn: {
-    marginLeft: 10,
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: POMEGRANATE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addBtnPressed: {
-    backgroundColor: POMEGRANATE_LIGHT,
-  },
-  addBtnText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '600',
-    lineHeight: 26,
-  },
-
-  // Filters
-  filterRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
-    gap: 8,
-  },
-  filterTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: GRAY_100,
-  },
-  filterTabActive: {
-    backgroundColor: POMEGRANATE_FAINT,
-  },
-  filterTabText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: GRAY_500,
-  },
-  filterTabTextActive: {
-    color: POMEGRANATE,
-  },
-
-  // Stats
-  statsRow: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-  },
-  statsText: {
-    fontSize: 12,
-    color: GRAY_500,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontWeight: '600',
-  },
-
-  // List
-  listContainer: {
-    flex: 1,
-  },
-  list: {
-    paddingBottom: 20,
-  },
-
-  // Todo row
-  todoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    backgroundColor: '#fff',
-    marginHorizontal: 12,
-    marginTop: 6,
-    borderRadius: 12,
-    ...Platform.select({
-      web: { boxShadow: '0 1px 2px rgba(0,0,0,0.04)' },
-    }),
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: GRAY_400,
-    marginRight: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxDone: {
-    backgroundColor: POMEGRANATE,
-    borderColor: POMEGRANATE,
-  },
-  checkboxPressed: {
-    opacity: 0.7,
-  },
-  checkmark: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  todoTitle: {
-    flex: 1,
-    fontSize: 16,
-    color: GRAY_900,
-    lineHeight: 22,
-  },
-  todoTitleDone: {
-    textDecorationLine: 'line-through',
-    color: GRAY_400,
-  },
-  deleteBtn: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  deleteBtnPressed: {
-    opacity: 0.5,
-  },
-  deleteText: {
-    fontSize: 16,
-    color: GRAY_400,
-    fontWeight: '500',
-  },
-
-  // Empty state
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: 60,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: GRAY_700,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: GRAY_500,
-    marginTop: 4,
-  },
-
-  // Bottom actions
-  bottomActions: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: GRAY_200,
-    backgroundColor: '#fff',
-  },
-  actionBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: POMEGRANATE_FAINT,
-    alignItems: 'center',
-  },
-  actionBtnSecondary: {
-    backgroundColor: GRAY_100,
-  },
-  actionBtnPressed: {
-    opacity: 0.7,
-  },
-  actionBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: POMEGRANATE,
-  },
-  actionBtnTextSecondary: {
-    color: GRAY_700,
-  },
-
-  // Splash / loading
-  splash: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  splashLogo: {
-    width: 80,
-    height: 80,
-  },
-  splashText: {
-    marginTop: 16,
-    fontSize: 15,
-    color: GRAY_500,
-  },
-});
