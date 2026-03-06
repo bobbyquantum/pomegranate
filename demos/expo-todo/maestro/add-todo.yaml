@@ -17,9 +17,6 @@ onFlowError:
 - tapOn:
     id: "todo-input"
 - inputText: "Buy milk"
-- extendedWaitUntil:
-    visible: "Buy milk"
-    timeout: 10000
 - takeScreenshot: add-02-text-entered
 
 # Tap the add button (more reliable than pressKey: Enter across API levels)

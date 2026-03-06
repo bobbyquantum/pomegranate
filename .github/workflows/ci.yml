@@ -387,7 +387,7 @@ jobs:
           export PATH="$HOME/.maestro/bin:$PATH"
           mkdir -p /tmp/benchmarks
 
-          ADAPTERS="expo-sqlite op-sqlite native-sqlite"
+          ADAPTERS="loki-memory expo-sqlite op-sqlite native-sqlite"
           FAILED=""
 
           for ADAPTER in $ADAPTERS; do
@@ -575,7 +575,7 @@ jobs:
 
           mkdir -p /tmp/benchmarks
 
-          ADAPTERS="expo-sqlite op-sqlite native-sqlite"
+          ADAPTERS="loki-memory expo-sqlite op-sqlite native-sqlite"
           FAILED=""
 
           for ADAPTER in $ADAPTERS; do
