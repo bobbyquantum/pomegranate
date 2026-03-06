@@ -137,23 +137,21 @@ export async function runBenchmarks(
   });
   results.push(measure('Update (N=100)', N_UPDATE, performance.now() - updateStart));
 
-  // ── 7. Read single field (1000 records) ──────────────────────────────
+  // ── 7. Read single field (1100 records) ──────────────────────────────
   report('Reading fields…');
   const readStart = performance.now();
   const allRecords = await collection.fetch(collection.query());
-  const N_READ = allRecords.length;
   for (const record of allRecords) {
     record.getField('title');
     record.getField('isCompleted');
     record.getField('priority');
   }
-  results.push(measure(`Read fields (N=${N_READ}×3)`, N_READ * 3, performance.now() - readStart));
+  results.push(measure('Read fields (N=1100×3)', allRecords.length * 3, performance.now() - readStart));
 
   // ── 8. Delete records (all) ──────────────────────────────────────────
   report('Deleting all records…');
   const deleteStart = performance.now();
   const toDelete = await collection.fetch(collection.query());
-  const N_DELETE = toDelete.length;
   await db.write(async () => {
     await db.batch(
       toDelete.map((record: any) => ({
@@ -163,7 +161,7 @@ export async function runBenchmarks(
       })),
     );
   });
-  results.push(measure(`Delete (N=${N_DELETE})`, N_DELETE, performance.now() - deleteStart));
+  results.push(measure('Delete (N=1100)', toDelete.length, performance.now() - deleteStart));
 
   // ── 9. Large batch insert + delete (5000) ────────────────────────────
   report('Stress test (5000 insert + delete)…');
@@ -229,23 +227,9 @@ export async function runBenchmarks(
         );
       }
       results.push(measure(`Raw sync INSERT (N=${N_RAW})`, N_RAW, performance.now() - syncStart));
-
-      // Clean up before async test
-      await driver.execute(`DELETE FROM "${RAW_TABLE}"`);
     } else {
       report('Skipping raw sync (SharedArrayBuffer not available on web)…');
     }
-
-    // ── 11. Raw async inserts ──────────────────────────────────────────
-    report(`Raw async inserts (${N_RAW})…`);
-    const asyncStart = performance.now();
-    for (let i = 0; i < N_RAW; i++) {
-      await driver.executeAsync(
-        `INSERT INTO "${RAW_TABLE}" (val, num) VALUES (?, ?)`,
-        [`async-${i}`, i * 1.1],
-      );
-    }
-    results.push(measure(`Raw async INSERT (N=${N_RAW})`, N_RAW, performance.now() - asyncStart));
 
     // Clean up
     await driver.execute(`DROP TABLE IF EXISTS "${RAW_TABLE}"`);

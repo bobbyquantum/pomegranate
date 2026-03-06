@@ -267,12 +267,10 @@ export function createExpoSQLiteDriver(config?: ExpoSQLiteDriverConfig): SQLiteD
     async query(sql: string, bindings?: unknown[]): Promise<Record<string, unknown>[]> {
       const database = requireDb();
       if (useSync && database.getAllSync) {
+        // Use database.getAllSync directly (no statement cache for queries).
+        // The bulk row transfer in getAllSync is faster than iterating via
+        // a prepared statement's getAllSync for large result sets.
         if (bindings && bindings.length > 0) {
-          const stmt = getCachedStmt(database, sql);
-          if (stmt) {
-            const result = stmt.executeSync(bindings);
-            return result.getAllSync();
-          }
           return database.getAllSync(sql, ...bindings);
         }
         return database.getAllSync(sql);
