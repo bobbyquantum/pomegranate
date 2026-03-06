@@ -29,7 +29,7 @@ npm run test:watch
 npx jest src/query/__tests__/QueryBuilder.test.ts
 ```
 
-We currently have **297 tests across 13 suites** covering schema, models, queries, CRUD, sync, hooks, encryption, adapters, and more.
+We currently have **401 tests across 20 suites** covering schema, models, queries, CRUD, sync, hooks, encryption, adapters, and more.
 
 ## Project Structure
 

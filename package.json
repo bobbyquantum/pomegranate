@@ -1,6 +1,6 @@
 {
   "name": "pomegranate-db",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reactive offline-first database with sync support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -78,6 +78,10 @@
     "expo",
     "expo-sqlite"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bobbyquantum/pomegranate.git"
+  },
   "license": "MIT",
   "peerDependencies": {
     "expo-sqlite": ">=14.0.0",
