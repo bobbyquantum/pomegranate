@@ -7,11 +7,11 @@
     "ios": "react-native run-ios",
     "start": "react-native start",
     "prebuild": "cd ../.. && npm run build && npm pack",
-    "reinstall": "npm run prebuild && npm install ../../pomegranate-db-0.1.0.tgz"
+    "reinstall": "npm run prebuild && npm install ../../pomegranate-db-0.1.1.tgz"
   },
   "dependencies": {
     "@op-engineering/op-sqlite": "^15.2.5",
-    "pomegranate-db": "file:../../pomegranate-db-0.1.0.tgz",
+    "pomegranate-db": "file:../../pomegranate-db-0.1.1.tgz",
     "react": "19.2.0",
     "react-native": "0.83.2",
     "react-native-safe-area-context": "^5.5.2"
