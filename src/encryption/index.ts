@@ -30,7 +30,9 @@ export interface EncryptionProvider {
 function getWebCrypto(): NonNullable<typeof globalThis.crypto> {
   if (globalThis.crypto === undefined || globalThis.crypto.subtle === undefined) {
     throw new Error(
-      'Web Crypto API is not available in this runtime. Import pomegranate-db/encryption/node in Node.js environments without globalThis.crypto.subtle.',
+      'Web Crypto API is not available in this runtime. '
+        + 'Import pomegranate-db/encryption/node in Node.js environments '
+        + 'without globalThis.crypto.subtle.',
     );
   }
   return globalThis.crypto;

@@ -3,7 +3,6 @@
  * `globalThis.crypto.subtle`.
  */
 
-import { EncryptingAdapter, EncryptionManager } from './index';
 import type { EncryptionProvider } from './index';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -30,5 +29,5 @@ export const nodeCryptoProvider: EncryptionProvider = {
   },
 };
 
-export { EncryptingAdapter, EncryptionManager };
-export type { EncryptionProvider };
+export { EncryptingAdapter, EncryptionManager } from './index';
+export type { EncryptionProvider } from './index';
