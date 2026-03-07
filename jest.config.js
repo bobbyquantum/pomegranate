@@ -7,7 +7,13 @@ module.exports = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'json'],
   collectCoverageFrom: [
     'src/**/*.ts',
+    '!src/**/*.d.ts',
     '!src/**/__tests__/**',
+    '!src/integrationTests/**',
+    '!src/adapters/expo-sqlite/**',
+    '!src/adapters/loki/worker/loki.worker.ts',
+    '!src/encryption/nodeCrypto.native.ts',
+    '!src/expo.ts',
     '!src/**/index.ts',
   ],
   transform: {
