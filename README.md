@@ -112,10 +112,10 @@ function PostList() {
 
 ## Next Steps
 
-- [Installation](https://bobbyquantum.github.io/pomegranate/docs/installation) — add PomegranateDB to your project
-- [Schema & Models](https://bobbyquantum.github.io/pomegranate/docs/schema) — define your data model
-- [CRUD Operations](https://bobbyquantum.github.io/pomegranate/docs/crud) — create, read, update, delete
-- [React Hooks](https://bobbyquantum.github.io/pomegranate/docs/react-hooks) — reactive UI integration
+- [Installation](https://bobbyquantum.github.io/pomegranate/installation) — add PomegranateDB to your project
+- [Schema & Models](https://bobbyquantum.github.io/pomegranate/schema) — define your data model
+- [CRUD Operations](https://bobbyquantum.github.io/pomegranate/crud) — create, read, update, delete
+- [React Hooks](https://bobbyquantum.github.io/pomegranate/react-hooks) — reactive UI integration
 
 ## License
 

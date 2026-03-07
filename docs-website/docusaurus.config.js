@@ -10,8 +10,8 @@ const config = {
   tagline: 'Reactive offline-first database for React Native & Expo',
   favicon: 'img/favicon.ico',
 
-  url: 'https://pomegranatedb.dev',
-  baseUrl: '/',
+  url: 'https://bobbyquantum.github.io',
+  baseUrl: '/pomegranate/',
 
   organizationName: 'bobbyquantum',
   projectName: 'pomegranate',
