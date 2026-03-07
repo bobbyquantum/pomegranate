@@ -129,6 +129,11 @@ export function mapObservable<A, B>(source: Observable<A>, fn: (value: A) => B):
 export function combineObservables<T>(sources: Observable<T>[]): Observable<T[]> {
   return {
     subscribe(listener: Listener<T[]>): Unsubscribe {
+      if (sources.length === 0) {
+        listener([]);
+        return () => {};
+      }
+
       const values: (T | undefined)[] = Array.from({ length: sources.length });
       const received = new Set<number>();
       const unsubs: Unsubscribe[] = [];
