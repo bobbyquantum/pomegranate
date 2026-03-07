@@ -13,8 +13,20 @@
 
 import type { Database } from '../database/Database';
 import type { RawRecord } from '../schema/types';
-import type { SyncConfig, SyncTableChanges, SyncTableChangeSet, SyncPullResult } from './types';
+import type {
+  SyncConfig,
+  SyncLog,
+  SyncPullResult,
+  SyncState,
+  SyncTableChangeSet,
+  SyncTableChanges,
+} from './types';
 import { logger } from '../utils';
+
+interface SyncLifecycleObserver {
+  onStateChange?: (state: SyncState) => void;
+  onLogChange?: (log: SyncLog) => void;
+}
 
 // ─── Last Pulled At Storage ──────────────────────────────────────────────
 
@@ -24,7 +36,7 @@ async function getLastPulledAt(db: Database): Promise<number | null> {
   try {
     // Store in adapter metadata if available, else use in-memory
     const raw = await db._adapter.findById('__pomegranate_metadata', LAST_PULLED_AT_KEY);
-    if (raw) return Number((raw as any).value) || null;
+    if (raw) return Number(raw.value) || null;
   } catch {
     // metadata table might not have this record
   }
@@ -58,108 +70,156 @@ async function setLastPulledAt(db: Database, timestamp: number): Promise<void> {
 
 // ─── Sync Implementation ────────────────────────────────────────────────
 
-export async function performSync(db: Database, config: SyncConfig): Promise<void> {
+export async function performSync(
+  db: Database,
+  config: SyncConfig,
+  observer: SyncLifecycleObserver = {},
+): Promise<void> {
   const tables = config.tables ?? db.tables;
   const lastPulledAt = await getLastPulledAt(db);
+  const log: SyncLog = {
+    startedAt: Date.now(),
+    state: 'idle',
+  };
+
+  const publishLog = () => {
+    observer.onLogChange?.({ ...log });
+  };
+
+  const setState = (state: SyncState) => {
+    log.state = state;
+    observer.onStateChange?.(state);
+    publishLog();
+  };
+
+  publishLog();
 
   logger.debug(`Sync starting. lastPulledAt: ${lastPulledAt}`);
 
-  // ── Step 1: Get local changes ──
-  const localChanges = await db._adapter.getLocalChanges(tables);
-  const hasLocalChanges = Object.values(localChanges).some(
-    (tc) => tc.created.length > 0 || tc.updated.length > 0 || tc.deleted.length > 0,
-  );
+  try {
+    // ── Step 1: Get local changes ──
+    const localChanges = await db._adapter.getLocalChanges(tables);
+    const hasLocalChanges = Object.values(localChanges).some(
+      (tc) => tc.created.length > 0 || tc.updated.length > 0 || tc.deleted.length > 0,
+    );
 
-  // Track which records were locally modified (needed for conflict detection after push)
-  const locallyModifiedIds = new Set<string>();
-  const locallyModifiedRecords = new Map<string, RawRecord>();
-  for (const [_table, tc] of Object.entries(localChanges)) {
-    for (const r of tc.updated) {
-      locallyModifiedIds.add(r.id);
-      locallyModifiedRecords.set(r.id, r);
+    // Track which records were locally modified (needed for conflict detection after push)
+    const locallyModifiedIds = new Set<string>();
+    const locallyModifiedRecords = new Map<string, RawRecord>();
+    for (const [_table, tc] of Object.entries(localChanges)) {
+      for (const r of tc.updated) {
+        locallyModifiedIds.add(r.id);
+        locallyModifiedRecords.set(r.id, r);
+      }
     }
-  }
 
-  // ── Step 2: Push local changes (if any) ──
-  if (hasLocalChanges) {
-    logger.debug('Pushing local changes...');
+    // ── Step 2: Push local changes (if any) ──
+    if (hasLocalChanges) {
+      setState('pushing');
+      logger.debug('Pushing local changes...');
 
-    // Strip internal sync fields before pushing
-    const pushPayload = sanitizeForPush(localChanges);
+      // Strip internal sync fields before pushing
+      const pushPayload = sanitizeForPush(localChanges);
 
-    await config.pushChanges({
-      changes: pushPayload,
-      lastPulledAt: lastPulledAt ?? 0,
-    });
+      await config.pushChanges({
+        changes: pushPayload,
+        lastPulledAt: lastPulledAt ?? 0,
+      });
 
-    // Mark all pushed records as synced
-    for (const table of tables) {
-      const tableChanges = localChanges[table];
-      if (!tableChanges) continue;
-
-      const syncedIds = [
-        ...tableChanges.created.map((r) => r.id),
-        ...tableChanges.updated.map((r) => r.id),
-      ];
-
-      if (syncedIds.length > 0) {
-        await db._adapter.markAsSynced(table, syncedIds);
+      const pushedTables = tables.filter((table) => {
+        const tableChanges = localChanges[table];
+        return Boolean(
+          tableChanges &&
+            (tableChanges.created.length > 0 ||
+              tableChanges.updated.length > 0 ||
+              tableChanges.deleted.length > 0),
+        );
+      });
+      if (pushedTables.length > 0) {
+        log.pushedTables = pushedTables;
+        publishLog();
       }
 
-      // Permanently remove locally-deleted records that were pushed
-      if (tableChanges.deleted.length > 0) {
-        for (const id of tableChanges.deleted) {
-          await db._adapter.destroyPermanently(table, id);
+      // Mark all pushed records as synced
+      for (const table of tables) {
+        const tableChanges = localChanges[table];
+        if (!tableChanges) continue;
+
+        const syncedIds = [
+          ...tableChanges.created.map((r) => r.id),
+          ...tableChanges.updated.map((r) => r.id),
+        ];
+
+        if (syncedIds.length > 0) {
+          await db._adapter.markAsSynced(table, syncedIds);
+        }
+
+        // Permanently remove locally-deleted records that were pushed
+        if (tableChanges.deleted.length > 0) {
+          for (const id of tableChanges.deleted) {
+            await db._adapter.destroyPermanently(table, id);
+          }
         }
       }
+
+      logger.debug('Push complete.');
     }
 
-    logger.debug('Push complete.');
-  }
+    // ── Step 3: Pull remote changes ──
+    setState('pulling');
+    logger.debug('Pulling remote changes...');
+    const pullResult: SyncPullResult = await config.pullChanges({ lastPulledAt });
+    log.pullTimestamp = pullResult.timestamp;
+    publishLog();
 
-  // ── Step 3: Pull remote changes ──
-  logger.debug('Pulling remote changes...');
-  const pullResult: SyncPullResult = await config.pullChanges({ lastPulledAt });
+    // ── Step 4: Apply remote changes ──
+    const remoteChanges = pullResult.changes;
+    const hasRemoteChanges = Object.values(remoteChanges).some(
+      (tc) => tc.created.length > 0 || tc.updated.length > 0 || tc.deleted.length > 0,
+    );
 
-  // ── Step 4: Apply remote changes ──
-  const remoteChanges = pullResult.changes;
-  const hasRemoteChanges = Object.values(remoteChanges).some(
-    (tc) => tc.created.length > 0 || tc.updated.length > 0 || tc.deleted.length > 0,
-  );
+    if (hasRemoteChanges) {
+      setState('applying');
+      logger.debug('Applying remote changes...');
 
-  if (hasRemoteChanges) {
-    logger.debug('Applying remote changes...');
-
-    // Handle conflicts: if a record was modified both locally and remotely
-    if (config.onConflict) {
-      await resolveConflicts(
-        db,
-        remoteChanges,
-        config.onConflict,
-        locallyModifiedIds,
-        locallyModifiedRecords,
-      );
-    }
-
-    await db._adapter.applyRemoteChanges(remoteChanges);
-
-    // Clear caches for affected collections
-    for (const table of Object.keys(remoteChanges)) {
-      try {
-        const collection = db.collection(table);
-        collection._clearCache();
-      } catch {
-        // Table might not have a registered collection
+      // Handle conflicts: if a record was modified both locally and remotely
+      if (config.onConflict) {
+        await resolveConflicts(
+          db,
+          remoteChanges,
+          config.onConflict,
+          locallyModifiedIds,
+          locallyModifiedRecords,
+        );
       }
+
+      await db._adapter.applyRemoteChanges(remoteChanges);
+
+      // Clear caches for affected collections
+      for (const table of Object.keys(remoteChanges)) {
+        try {
+          const collection = db.collection(table);
+          collection._clearCache();
+        } catch {
+          // Table might not have a registered collection
+        }
+      }
+
+      logger.debug('Remote changes applied.');
     }
 
-    logger.debug('Remote changes applied.');
+    // ── Step 5: Update lastPulledAt ──
+    await setLastPulledAt(db, pullResult.timestamp);
+
+    log.finishedAt = Date.now();
+    setState('complete');
+    logger.debug(`Sync complete. New lastPulledAt: ${pullResult.timestamp}`);
+  } catch (error) {
+    log.finishedAt = Date.now();
+    log.error = error instanceof Error ? error.message : String(error);
+    setState('error');
+    throw error;
   }
-
-  // ── Step 5: Update lastPulledAt ──
-  await setLastPulledAt(db, pullResult.timestamp);
-
-  logger.debug(`Sync complete. New lastPulledAt: ${pullResult.timestamp}`);
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────

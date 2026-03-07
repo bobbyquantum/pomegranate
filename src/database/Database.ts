@@ -17,12 +17,13 @@
 
 import type { StorageAdapter } from '../adapters/types';
 import type { EncryptionConfig } from '../adapters/types';
-import type { ModelSchema, DatabaseSchema, RawRecord, TableColumnSchema } from '../schema/types';
+import type { ModelSchema, DatabaseSchema, TableColumnSchema } from '../schema/types';
+import type { SyncConfig, SyncLog, SyncState } from '../sync/types';
 import { Collection } from '../collection/Collection';
 import type { Model } from '../model/Model';
 import type { ModelStatic, ModelDatabaseRef } from '../model/Model';
 import type { BatchOperation } from '../query/types';
-import { Subject } from '../observable/Subject';
+import { BehaviorSubject, Subject } from '../observable/Subject';
 import type { Observable } from '../observable/Subject';
 
 // ─── Configuration ─────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ export type DatabaseEvent =
   | { type: 'write_completed' }
   | { type: 'sync_started' }
   | { type: 'sync_completed' }
+  | { type: 'sync_failed'; error: string }
   | { type: 'reset' };
 
 // ─── Database class ────────────────────────────────────────────────────────
@@ -55,6 +57,8 @@ export class Database implements ModelDatabaseRef {
   private _writeQueue: Array<() => Promise<void>> = [];
   private _isProcessingQueue = false;
   private _events$ = new Subject<DatabaseEvent>();
+  private _syncState$ = new BehaviorSubject<SyncState>('idle');
+  private _syncLog$ = new BehaviorSubject<SyncLog | null>(null);
   private _schemaVersion: number;
 
   constructor(private config: DatabaseConfig) {
@@ -238,21 +242,27 @@ export class Database implements ModelDatabaseRef {
    * Run a sync cycle.
    * See sync/index.ts for the full implementation.
    */
-  async sync(opts: {
-    pullChanges: (params: { lastPulledAt: number | null }) => Promise<{
-      changes: Record<string, { created: RawRecord[]; updated: RawRecord[]; deleted: string[] }>;
-      timestamp: number;
-    }>;
-    pushChanges: (params: {
-      changes: Record<string, { created: RawRecord[]; updated: RawRecord[]; deleted: string[] }>;
-      lastPulledAt: number;
-    }) => Promise<void>;
-  }): Promise<void> {
+  async sync(opts: SyncConfig): Promise<void> {
     this._ensureInitialized();
+    this._events$.next({ type: 'sync_started' });
 
     // Import sync dynamically to keep the module boundary clean
     const { performSync } = await import('../sync');
-    await performSync(this, opts);
+    try {
+      await performSync(this, opts, {
+        onStateChange: (state) => {
+          this._syncState$.next(state);
+        },
+        onLogChange: (log) => {
+          this._syncLog$.next(log);
+        },
+      });
+      this._events$.next({ type: 'sync_completed' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this._events$.next({ type: 'sync_failed', error: message });
+      throw error;
+    }
   }
 
   // ─── Reset ──────────────────────────────────────────────────────────
@@ -272,6 +282,22 @@ export class Database implements ModelDatabaseRef {
 
   get events$(): Observable<DatabaseEvent> {
     return this._events$;
+  }
+
+  get syncState$(): Observable<SyncState> {
+    return this._syncState$;
+  }
+
+  get syncLog$(): Observable<SyncLog | null> {
+    return this._syncLog$;
+  }
+
+  observeSyncState(): Observable<SyncState> {
+    return this._syncState$;
+  }
+
+  observeSyncLog(): Observable<SyncLog | null> {
+    return this._syncLog$;
   }
 
   // ─── Close ──────────────────────────────────────────────────────────

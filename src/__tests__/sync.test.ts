@@ -629,4 +629,128 @@ describe('Sync Engine', () => {
       await expect(performSync(db, config)).rejects.toThrow('Server down');
     });
   });
+
+  describe('Database sync observables', () => {
+    it('streams sync state and sync log updates during a successful sync', async () => {
+      await db.write(async () => {
+        await db.get(Task).create({ title: 'Needs syncing' });
+      });
+
+      const states: string[] = [];
+      const logs: Array<{
+        state: string;
+        startedAt: number;
+        finishedAt?: number;
+        pullTimestamp?: number;
+        pushedTables?: string[];
+      }> = [];
+
+      const unsubState = db.observeSyncState().subscribe((state) => states.push(state));
+      const unsubLog = db.observeSyncLog().subscribe((log) => {
+        if (log) {
+          logs.push({
+            state: log.state,
+            startedAt: log.startedAt,
+            finishedAt: log.finishedAt,
+            pullTimestamp: log.pullTimestamp,
+            pushedTables: log.pushedTables ? [...log.pushedTables] : undefined,
+          });
+        }
+      });
+
+      const events: string[] = [];
+      const unsubEvents = db.events$.subscribe((event) => events.push(event.type));
+
+      await db.sync({
+        pushChanges: async () => {},
+        pullChanges: async () => ({
+          changes: {
+            tasks: {
+              created: [
+                {
+                  id: 'remote-2',
+                  title: 'Pulled from server',
+                  done: false,
+                  priority: 2,
+                  _status: 'synced',
+                  _changed: '',
+                },
+              ],
+              updated: [],
+              deleted: [],
+            },
+          },
+          timestamp: 4321,
+        }),
+      });
+
+      unsubState();
+      unsubLog();
+      unsubEvents();
+
+      const syncEvents = events.filter((event) => event.startsWith('sync_'));
+
+      expect(states).toEqual(['idle', 'pushing', 'pulling', 'applying', 'complete']);
+      expect(syncEvents).toEqual(['sync_started', 'sync_completed']);
+
+      const finalLog = logs.at(-1)!;
+      expect(finalLog.state).toBe('complete');
+      expect(finalLog.startedAt).toEqual(expect.any(Number));
+      expect(finalLog.finishedAt).toEqual(expect.any(Number));
+      expect(finalLog.finishedAt!).toBeGreaterThanOrEqual(finalLog.startedAt);
+      expect(finalLog.pullTimestamp).toBe(4321);
+      expect(finalLog.pushedTables).toEqual(['tasks']);
+    });
+
+    it('publishes sync failures to state, log, and database events', async () => {
+      await db.write(async () => {
+        await db.get(Task).create({ title: 'Will fail' });
+      });
+
+      const states: string[] = [];
+      const logs: Array<{ state: string; error?: string; finishedAt?: number }> = [];
+      const eventTypes: string[] = [];
+      const eventErrors: string[] = [];
+
+      const unsubState = db.syncState$.subscribe((state) => states.push(state));
+      const unsubLog = db.syncLog$.subscribe((log) => {
+        if (log) {
+          logs.push({ state: log.state, error: log.error, finishedAt: log.finishedAt });
+        }
+      });
+      const unsubEvents = db.events$.subscribe((event) => {
+        eventTypes.push(event.type);
+        if (event.type === 'sync_failed') {
+          eventErrors.push(event.error);
+        }
+      });
+
+      await expect(
+        db.sync({
+          pushChanges: async () => {
+            throw new Error('Network error');
+          },
+          pullChanges: async () => ({
+            changes: emptyChanges(),
+            timestamp: 9999,
+          }),
+        }),
+      ).rejects.toThrow('Network error');
+
+      unsubState();
+      unsubLog();
+      unsubEvents();
+
+      const syncEvents = eventTypes.filter((event) => event.startsWith('sync_'));
+
+      expect(states).toEqual(['idle', 'pushing', 'error']);
+      expect(syncEvents).toEqual(['sync_started', 'sync_failed']);
+      expect(eventErrors).toEqual(['Network error']);
+
+      const finalLog = logs.at(-1)!;
+      expect(finalLog.state).toBe('error');
+      expect(finalLog.error).toBe('Network error');
+      expect(finalLog.finishedAt).toEqual(expect.any(Number));
+    });
+  });
 });
