@@ -13,13 +13,19 @@ PomegranateDB supports encryption at rest through two mechanisms:
 Wraps any adapter with AES-GCM encryption. Records are encrypted/decrypted in JavaScript before being passed to the storage backend.
 
 ```ts
-import { LokiAdapter, EncryptingAdapter } from 'pomegranate-db';
+import { LokiAdapter } from 'pomegranate-db';
+import { EncryptingAdapter } from 'pomegranate-db/encryption/react-native';
 
-const adapter = new EncryptingAdapter({
-  adapter: new LokiAdapter({ databaseName: 'myapp' }),
-  password: 'user-secret',
-});
+const key = new TextEncoder().encode('0123456789abcdef0123456789abcdef');
+
+const adapter = new EncryptingAdapter(
+  new LokiAdapter({ databaseName: 'myapp' }),
+  async () => key,
+);
 ```
+
+In Node.js, use `pomegranate-db/encryption/node` if you need an explicit Node
+crypto provider.
 
 **Pros:**
 - Works with any adapter (Loki, SQLite, etc.)
@@ -58,7 +64,7 @@ const adapter = new SQLiteAdapter({
 
 | Scenario | Recommendation |
 |----------|---------------|
-| Expo project | EncryptingAdapter (no native deps) |
+| Expo project | `pomegranate-db/encryption/react-native` |
 | Bare RN, need encryption | op-sqlite + SQLCipher |
 | Performance-critical, lots of queries | SQLCipher |
-| Simple key-value encryption | EncryptingAdapter |
+| Simple key-value encryption | `pomegranate-db/encryption` |

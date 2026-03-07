@@ -120,6 +120,9 @@ Install adapter-specific peers only when you use those entry points:
 
 - `pomegranate-db` -> `react`
 - `pomegranate-db/expo` -> `react`, `expo-sqlite`
+- `pomegranate-db/encryption` -> no extra peers, uses Web Crypto
+- `pomegranate-db/encryption/node` -> Node.js only
+- `pomegranate-db/encryption/react-native` -> React Native / Expo Web Crypto runtime
 - `pomegranate-db/op-sqlite` -> `@op-engineering/op-sqlite`
 - `pomegranate-db/native-sqlite` -> React Native app with the bundled native module
 
@@ -130,12 +133,16 @@ PomegranateDB ships a small set of explicit subpath exports for common setups:
 ```ts
 import { Database, LokiAdapter } from 'pomegranate-db'
 import { createExpoSQLiteDriver } from 'pomegranate-db/expo'
+import { EncryptingAdapter } from 'pomegranate-db/encryption'
+import { nodeCryptoProvider } from 'pomegranate-db/encryption/node'
 import { createOpSQLiteDriver } from 'pomegranate-db/op-sqlite'
 import { createNativeSQLiteDriver } from 'pomegranate-db/native-sqlite'
 ```
 
-The package export map for `.`, `./expo`, `./expo-plugin`, `./op-sqlite`, and `./native-sqlite`
-is verified from the packed tarball before release.
+The root package intentionally excludes encryption exports so Expo Snack can install
+`pomegranate-db` without resolving Node's `crypto` module. Import encryption through
+the explicit `./encryption`, `./encryption/node`, or `./encryption/react-native`
+subpaths instead.
 
 ## Migrations
 

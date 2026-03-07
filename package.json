@@ -33,6 +33,18 @@
       "types": "./dist/expo.d.ts",
       "default": "./dist/expo.js"
     },
+    "./encryption": {
+      "types": "./dist/encryption/index.d.ts",
+      "default": "./dist/encryption/index.js"
+    },
+    "./encryption/node": {
+      "types": "./dist/encryption/node.d.ts",
+      "default": "./dist/encryption/node.js"
+    },
+    "./encryption/react-native": {
+      "types": "./dist/encryption/react-native.d.ts",
+      "default": "./dist/encryption/react-native.js"
+    },
     "./expo-plugin": {
       "types": "./expo-plugin/index.d.ts",
       "default": "./expo-plugin/index.js"
@@ -50,7 +62,7 @@
     "build": "tsc && tsc -p expo-plugin/tsconfig.json",
     "build:lib": "tsc",
     "build:expo-plugin": "tsc -p expo-plugin/tsconfig.json",
-    "prepublishOnly": "npm run clean && npm run build",
+    "prepack": "npm run clean && npm run build",
     "test": "jest",
     "test:web": "jest --testPathPattern='web\\.test' --no-cache",
     "test:web:native": "jest --testPathPattern='web-native\\.test' --no-cache",
