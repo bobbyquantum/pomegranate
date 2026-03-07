@@ -74,11 +74,11 @@ A running list of outstanding work, grouped by area.
 ## Documentation
 
 - [ ] API reference (auto-generate from TSDoc)
-- [ ] "Getting started" guide for Expo + React Native CLI
-- [ ] Sync setup walkthrough
-- [ ] Encryption usage guide
+- [x] "Getting started" guide for Expo + React Native CLI
+- [x] Sync setup walkthrough
+- [x] Encryption usage guide
 - [x] Migration / schema evolution guide
-- [ ] Update `docs-website/` Docusaurus content (many pages are stubs or WatermelonDB carry-overs)
+- [ ] Polish remaining `docs-website/` Docusaurus content and replace any leftover carry-overs / thin pages
 
 ## Demos
 
@@ -131,8 +131,8 @@ A running list of outstanding work, grouped by area.
 - [x] `src/utils/` — utility functions covered by direct unit tests (`src/__tests__/utils.test.ts`), with targeted Jest coverage at 100%
 - [x] `src/observable/` — observation helpers now cover undefined replay values, shared producer lifecycle, mapped unsubscribe propagation, and empty / partial `combineObservables()` inputs
 - [ ] Adapter error paths (corrupt DB, full disk, etc.)
-- [ ] Concurrent write contention tests
+- [x] Concurrent write contention tests — covered in `src/__tests__/integration.test.ts` and `src/__tests__/web-native.test.ts`
 
 ---
 
-_Last updated: 2026-03-07 — utils helpers now have direct unit coverage at 100%, observable helpers cover subscription lifecycle edge cases, Loki migrations cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, migration/schema evolution guide now documents the manual adapter migration workflow, sync conflict resolution is now documented, sync lifecycle state/log observables are now wired through `Database.sync()`, subpath exports verified from packed tarball consumer install_
+_Last updated: 2026-03-07 — utils helpers now have direct unit coverage at 100%, observable helpers cover subscription lifecycle edge cases, Loki migrations cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, migration/schema evolution guide now documents the manual adapter migration workflow, getting-started / sync / encryption docs are now in place, sync conflict resolution is now documented, sync lifecycle state/log observables are now wired through `Database.sync()`, concurrent write contention tests are covered, subpath exports verified from packed tarball consumer install_
