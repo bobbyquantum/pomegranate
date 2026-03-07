@@ -21,7 +21,7 @@ describe('utils', () => {
   describe('generateId', () => {
     it('returns unique ids even if timestamp and random are stable', () => {
       jest.spyOn(Date, 'now').mockReturnValue(1_709_765_432_100);
-      jest.spyOn(Math, 'random').mockReturnValue(0.123456789);
+      jest.spyOn(Math, 'random').mockReturnValue(0.123_456_789);
 
       const first = generateId();
       const second = generateId();
