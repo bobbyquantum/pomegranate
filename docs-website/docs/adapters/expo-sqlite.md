@@ -4,6 +4,8 @@ title: Expo SQLite Driver
 slug: /adapters/expo-sqlite
 ---
 
+import SnackEmbed from '@site/src/components/SnackEmbed';
+
 # Expo SQLite Driver
 
 The Expo SQLite driver wraps [`expo-sqlite`](https://docs.expo.dev/versions/latest/sdk/sqlite/) for use with PomegranateDB's `SQLiteAdapter`. Works on **iOS, Android, and web**.
@@ -30,6 +32,12 @@ const db = new Database({
 
 await db.initialize();
 ```
+
+## Try It In Expo Snack
+
+The live Snack below uses the same `pomegranate-db` + `expo-sqlite` setup shown in this guide. The embed automatically switches between the light and dark Snack themes to match the docs theme.
+
+<SnackEmbed snackId="@bobbyquantum/pomegranate-snack" />
 
 ### With Suspense
 

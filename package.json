@@ -62,6 +62,7 @@
     "build": "tsc && tsc -p expo-plugin/tsconfig.json",
     "build:lib": "tsc",
     "build:expo-plugin": "tsc -p expo-plugin/tsconfig.json",
+    "pack:demo": "./scripts/pack-demo-tarball",
     "prepack": "npm run clean && npm run build",
     "test": "jest",
     "test:web": "jest --testPathPattern='web\\.test' --no-cache",
