@@ -54,6 +54,8 @@ const PostSchema = m.model('posts', {
 
 The first argument is the **table name** in the database. Field names in JavaScript can differ from column names in SQL — pass the SQL column name as the first argument to any column builder, or let PomegranateDB infer it.
 
+If you have already shipped your app, treat schema changes as an upgrade path problem, not just a type change. See [Migrations](./advanced/migrations) for the manual schema-evolution workflow.
+
 ### Relations
 
 ```ts

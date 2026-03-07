@@ -77,7 +77,7 @@ A running list of outstanding work, grouped by area.
 - [ ] "Getting started" guide for Expo + React Native CLI
 - [ ] Sync setup walkthrough
 - [ ] Encryption usage guide
-- [ ] Migration / schema evolution guide
+- [x] Migration / schema evolution guide
 - [ ] Update `docs-website/` Docusaurus content (many pages are stubs or WatermelonDB carry-overs)
 
 ## Demos
@@ -135,4 +135,4 @@ A running list of outstanding work, grouped by area.
 
 ---
 
-_Last updated: 2026-03-07 — utils helpers now have direct unit coverage at 100%, observable helpers cover subscription lifecycle edge cases, Loki migrations cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, subpath exports verified from packed tarball consumer install_
+_Last updated: 2026-03-07 — utils helpers now have direct unit coverage at 100%, observable helpers cover subscription lifecycle edge cases, Loki migrations cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, migration/schema evolution guide now documents the manual adapter migration workflow, subpath exports verified from packed tarball consumer install_
