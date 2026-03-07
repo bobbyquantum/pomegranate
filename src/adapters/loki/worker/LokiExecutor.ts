@@ -154,6 +154,48 @@ export class LokiExecutor {
     return col;
   }
 
+  private _getMetadataCollection(): LokiCollection {
+    return this._getCollection('__pomegranate_metadata');
+  }
+
+  private _setSchemaVersion(version: number): void {
+    const metaCollection = this._getMetadataCollection();
+    const existing = metaCollection.findOne({ key: 'schema_version' } as any);
+
+    if (existing) {
+      (existing as any).value = String(version);
+      metaCollection.update(existing);
+    } else {
+      metaCollection.insert({ key: 'schema_version', value: String(version) } as any);
+    }
+
+    this._schemaVersion = version;
+  }
+
+  private _addColumn(table: string, column: string, columnType: string, isOptional = false): void {
+    const col = this._getCollection(table);
+    const defaultValue = getDefaultValueForMigrationColumn(columnType, isOptional);
+
+    for (const doc of col.find() as Array<Record<string, unknown>>) {
+      if (!(column in doc)) {
+        doc[column] = defaultValue;
+        col.update(doc as any);
+      }
+    }
+  }
+
+  private _executeSqlMigration(query: string): void {
+    const statement = parseLokiMigrationSql(query);
+    const col = this._getCollection(statement.table);
+
+    for (const doc of col.find() as Array<Record<string, unknown>>) {
+      if (matchesLokiMigrationWhere(doc, statement.where)) {
+        doc[statement.column] = statement.value;
+        col.update(doc as any);
+      }
+    }
+  }
+
   /**
    * Persist to storage adapter.
    * No-op when: no persistence configured, or saveStrategy is 'auto' (timer handles it).
@@ -409,20 +451,38 @@ export class LokiExecutor {
   // ─── Migration ──────────────────────────────────────────────────────
 
   async migrate(migrations: Migration[]): Promise<void> {
-    for (const migration of migrations) {
+    const applicable = migrations
+      .filter((migration) => migration.fromVersion >= this._schemaVersion)
+      .toSorted((a, b) => a.fromVersion - b.fromVersion);
+
+    for (const migration of applicable) {
       for (const step of migration.steps) {
         switch (step.type) {
           case 'createTable':
             if (!this._db!.getCollection(step.schema.name)) {
-              this._db!.addCollection(step.schema.name, { unique: ['id'] as any });
+              const indices = step.schema.columns.filter((c) => c.isIndexed).map((c) => c.name);
+              this._db!.addCollection(step.schema.name, {
+                unique: ['id'] as any,
+                indices: ['_status', ...indices] as any,
+              });
             }
+            break;
+          case 'addColumn':
+            this._addColumn(step.table, step.column, step.columnType, step.isOptional);
             break;
           case 'destroyTable':
             this._db!.removeCollection(step.table);
             break;
+          case 'sql':
+            this._executeSqlMigration(step.query);
+            break;
         }
       }
+
+      this._setSchemaVersion(migration.toVersion);
     }
+
+    await this._save();
   }
 
   // ─── Reset ──────────────────────────────────────────────────────────
@@ -528,6 +588,127 @@ function operatorToLoki(op: ComparisonOperator, value: unknown): any {
       return { $ne: null };
     default:
       throw new Error(`Unknown operator: ${op}`);
+  }
+}
+
+interface ParsedSqlMigration {
+  table: string;
+  column: string;
+  value: unknown;
+  where?: ParsedSqlWhere;
+}
+
+type ParsedSqlWhere =
+  | { type: 'isNull'; column: string }
+  | { type: 'isNotNull'; column: string }
+  | { type: 'eq'; column: string; value: unknown }
+  | { type: 'neq'; column: string; value: unknown };
+
+function getDefaultValueForMigrationColumn(columnType: string, isOptional: boolean): unknown {
+  if (isOptional) {
+    return null;
+  }
+
+  switch (columnType.trim().toLowerCase()) {
+    case 'bool':
+    case 'boolean':
+      return 0;
+    case 'date':
+    case 'datetime':
+    case 'float':
+    case 'int':
+    case 'integer':
+    case 'number':
+    case 'numeric':
+    case 'real':
+      return 0;
+    case 'string':
+      return '';
+  }
+
+  return '';
+}
+
+function parseLokiMigrationSql(query: string): ParsedSqlMigration {
+  const match = query.match(
+    /^\s*UPDATE\s+"([^"]+)"\s+SET\s+"([^"]+)"\s*=\s*(.+?)(?:\s+WHERE\s+(.+?))?\s*;?\s*$/i,
+  );
+
+  if (!match) {
+    throw new Error(`Unsupported Loki migration SQL: ${query}`);
+  }
+
+  const [, table, column, rawValue, rawWhere] = match;
+  return {
+    table,
+    column,
+    value: parseSqlLiteral(rawValue),
+    where: rawWhere ? parseSqlWhere(rawWhere) : undefined,
+  };
+}
+
+function parseSqlWhere(whereClause: string): ParsedSqlWhere {
+  const isNotNull = whereClause.match(/^"([^"]+)"\s+IS\s+NOT\s+NULL$/i);
+  if (isNotNull) {
+    return { type: 'isNotNull', column: isNotNull[1] };
+  }
+
+  const isNull = whereClause.match(/^"([^"]+)"\s+IS\s+NULL$/i);
+  if (isNull) {
+    return { type: 'isNull', column: isNull[1] };
+  }
+
+  const eq = whereClause.match(/^"([^"]+)"\s*=\s*(.+)$/i);
+  if (eq) {
+    return { type: 'eq', column: eq[1], value: parseSqlLiteral(eq[2]) };
+  }
+
+  const neq = whereClause.match(/^"([^"]+)"\s*(?:!=|<>)\s*(.+)$/i);
+  if (neq) {
+    return { type: 'neq', column: neq[1], value: parseSqlLiteral(neq[2]) };
+  }
+
+  throw new Error(`Unsupported Loki migration WHERE clause: ${whereClause}`);
+}
+
+function parseSqlLiteral(value: string): unknown {
+  const trimmed = value.trim();
+
+  if (/^null$/i.test(trimmed)) {
+    return null;
+  }
+  if (/^true$/i.test(trimmed)) {
+    return true;
+  }
+  if (/^false$/i.test(trimmed)) {
+    return false;
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+  const stringMatch = trimmed.match(/^'(.*)'$/s);
+  if (stringMatch) {
+    return stringMatch[1].replaceAll("''", "'");
+  }
+
+  throw new Error(`Unsupported Loki migration SQL literal: ${value}`);
+}
+
+function matchesLokiMigrationWhere(doc: Record<string, unknown>, where?: ParsedSqlWhere): boolean {
+  if (!where) {
+    return true;
+  }
+
+  const value = doc[where.column];
+  switch (where.type) {
+    case 'isNull':
+      return value == null;
+    case 'isNotNull':
+      return value != null;
+    case 'eq':
+      return value === where.value;
+    case 'neq':
+      return value !== where.value;
   }
 }
 
