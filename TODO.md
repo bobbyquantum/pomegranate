@@ -22,8 +22,8 @@ A running list of outstanding work, grouped by area.
 
 ## Schema & Migrations
 
-- [ ] **Migration engine** — schema migration types exist but no automated `addColumn` / `createTable` diffing yet
-- [ ] Validate migration steps at adapter level (LokiAdapter does a basic version check; SQLite adapters need the same)
+- [ ] **Migration engine** — manual migration steps (`createTable`, `addColumn`, `destroyTable`, `sql`) now work across Loki + SQLite, but automated schema diffing for `addColumn` / `createTable` is still not implemented
+- [x] Validate migration steps at adapter level — LokiAdapter + SQLiteAdapter covered by migration tests, including version tracking and backfill behavior
 
 ## Sync
 
@@ -68,7 +68,7 @@ A running list of outstanding work, grouped by area.
 
 - [x] Declare `react-native` as a **peer dependency** (>=0.71.0, optional)
 - [x] Add `react` peer dependency range (>=17.0.0, optional)
-- [ ] Verify subpath exports (`.`, `./expo`, `./expo-plugin`, `./op-sqlite`, `./native-sqlite`) resolve correctly in consuming apps
+- [x] Verify subpath exports (`.`, `./expo`, `./expo-plugin`, `./op-sqlite`, `./native-sqlite`) resolve correctly in consuming apps (verified from packed tarball with consumer `require.resolve()`)
 - [ ] Publish to npm (currently v0.1.0 local only)
 
 ## Documentation
@@ -135,4 +135,4 @@ A running list of outstanding work, grouped by area.
 
 ---
 
-_Last updated: 2025-07-14 — 20/20 CI green: Maestro e2e (Android + iOS) for expo-todo & bare-rn-todo, web Playwright e2e (loki-idb + expo-sqlite WASM), macOS-latest runners, diagnostic screenshots_
+_Last updated: 2026-03-07 — Loki migrations now cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, subpath exports verified from packed tarball consumer install_

@@ -110,6 +110,45 @@ function PostList() {
 }
 ```
 
+## Installation
+
+```sh
+npm install pomegranate-db
+```
+
+Install adapter-specific peers only when you use those entry points:
+
+- `pomegranate-db` -> `react`
+- `pomegranate-db/expo` -> `react`, `expo-sqlite`
+- `pomegranate-db/op-sqlite` -> `@op-engineering/op-sqlite`
+- `pomegranate-db/native-sqlite` -> React Native app with the bundled native module
+
+## Entry Points
+
+PomegranateDB ships a small set of explicit subpath exports for common setups:
+
+```ts
+import { Database, LokiAdapter } from 'pomegranate-db'
+import { createExpoSQLiteDriver } from 'pomegranate-db/expo'
+import { createOpSQLiteDriver } from 'pomegranate-db/op-sqlite'
+import { createNativeSQLiteDriver } from 'pomegranate-db/native-sqlite'
+```
+
+The package export map for `.`, `./expo`, `./expo-plugin`, `./op-sqlite`, and `./native-sqlite`
+is verified from the packed tarball before release.
+
+## Migrations
+
+Manual migrations are supported across Loki and SQLite adapters with these step types:
+
+- `createTable`
+- `addColumn`
+- `destroyTable`
+- `sql`
+
+Use `sql` for targeted backfills such as setting a new column value on existing rows.
+Schema diff generation is not automated yet, so migration steps are still authored manually.
+
 ## Next Steps
 
 - [Installation](https://bobbyquantum.github.io/pomegranate/installation) — add PomegranateDB to your project

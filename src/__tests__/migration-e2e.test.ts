@@ -2,7 +2,7 @@
  * Migration end-to-end tests.
  *
  * Exercises the migration system with LokiAdapter:
- *   - createTable and destroyTable migration steps
+ *   - createTable, addColumn, sql, and destroyTable migration steps
  *   - Sequential migrations applied in order
  *   - Data preservation across migrations
  *   - Schema version tracking
@@ -136,6 +136,24 @@ const migrationV2toV3: Migration = {
   ],
 };
 
+const migrationWithColumnBackfill: Migration = {
+  fromVersion: 1,
+  toVersion: 2,
+  steps: [
+    {
+      type: 'addColumn',
+      table: 'todos',
+      column: 'category',
+      columnType: 'TEXT',
+      isOptional: true,
+    },
+    {
+      type: 'sql',
+      query: 'UPDATE "todos" SET "category" = \'migrated\' WHERE "id" IS NOT NULL',
+    },
+  ],
+};
+
 // ─── Tests ────────────────────────────────────────────────────────────────
 
 describe('Migration E2E', () => {
@@ -181,6 +199,24 @@ describe('Migration E2E', () => {
       const todo = await adapter.findById('todos', 't1');
       expect(todo).not.toBeNull();
       expect(todo!.title).toBe('existing todo');
+      expect(await adapter.getSchemaVersion()).toBe(2);
+    });
+
+    it('adds a column and backfills existing rows with sql', async () => {
+      await adapter.insert('todos', {
+        id: 't1',
+        title: 'needs category',
+        done: 0,
+        _status: 'created',
+        _changed: '',
+      } as RawRecord);
+
+      await adapter.migrate([migrationWithColumnBackfill]);
+
+      const todo = await adapter.findById('todos', 't1');
+      expect(todo).not.toBeNull();
+      expect(todo!.category).toBe('migrated');
+      expect(await adapter.getSchemaVersion()).toBe(2);
     });
 
     it('destroys a table via migration', async () => {
@@ -212,6 +248,7 @@ describe('Migration E2E', () => {
       const setting = await adapter.findById('settings', 's1');
       expect(setting).not.toBeNull();
       expect(setting!.key).toBe('theme');
+      expect(await adapter.getSchemaVersion()).toBe(3);
     });
 
     it('applies multiple migrations sequentially', async () => {
@@ -247,6 +284,7 @@ describe('Migration E2E', () => {
       } as RawRecord);
       const setting = await adapter.findById('settings', 's1');
       expect(setting).not.toBeNull();
+      expect(await adapter.getSchemaVersion()).toBe(3);
     });
 
     it('preserves data in untouched tables during migration', async () => {
@@ -572,6 +610,7 @@ describe('Migration E2E', () => {
       const found = await adapter.findById('todos', 't1');
       expect(found).not.toBeNull();
       expect(found!.title).toBe('Safe');
+      expect(await adapter.getSchemaVersion()).toBe(1);
 
       await adapter.close();
     });
