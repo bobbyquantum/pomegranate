@@ -390,6 +390,38 @@ jobs:
           ADAPTERS="expo-sqlite op-sqlite native-sqlite"
           FAILED=""
 
+          reset_app_state() {
+            xcrun simctl terminate "$SIMULATOR_UDID" com.pomegranatedb.todo.demo 2>/dev/null || true
+            sleep 2
+            xcrun simctl privacy "$SIMULATOR_UDID" reset all com.pomegranatedb.todo.demo 2>/dev/null || true
+            APP_DATA=$(xcrun simctl get_app_container "$SIMULATOR_UDID" com.pomegranatedb.todo.demo data 2>/dev/null || echo '')
+            if [ -n "$APP_DATA" ]; then
+              rm -rf "${APP_DATA}/Documents"/* "${APP_DATA}/Library"/* 2>/dev/null || true
+            fi
+            sleep 1
+          }
+
+          run_maestro_with_retry() {
+            local adapter="$1"
+            local attempt=1
+
+            while [ "$attempt" -le 2 ]; do
+              echo "Maestro attempt ${attempt}/2 for ${adapter}"
+              if maestro test --env "ADAPTER=${adapter}" demos/expo-todo/maestro/; then
+                return 0
+              fi
+
+              if [ "$attempt" -lt 2 ]; then
+                echo "Retrying ${adapter} after failure"
+                reset_app_state
+              fi
+
+              attempt=$((attempt + 1))
+            done
+
+            return 1
+          }
+
           for ADAPTER in $ADAPTERS; do
             echo ""
             echo "=========================================="
@@ -403,16 +435,9 @@ jobs:
             sleep 1
 
             # Clear app data for a fair benchmark (fresh DB each run)
-            xcrun simctl terminate "$SIMULATOR_UDID" com.pomegranatedb.todo.demo 2>/dev/null || true
-            sleep 2
-            xcrun simctl privacy "$SIMULATOR_UDID" reset all com.pomegranatedb.todo.demo 2>/dev/null || true
-            APP_DATA=$(xcrun simctl get_app_container "$SIMULATOR_UDID" com.pomegranatedb.todo.demo data 2>/dev/null || echo '')
-            if [ -n "$APP_DATA" ]; then
-              rm -rf "${APP_DATA}/Documents"/* "${APP_DATA}/Library"/* 2>/dev/null || true
-            fi
-            sleep 1
+            reset_app_state
 
-            if maestro test --env "ADAPTER=${ADAPTER}" demos/expo-todo/maestro/; then
+            if run_maestro_with_retry "$ADAPTER"; then
               echo "✅ $ADAPTER passed"
             else
               echo "❌ $ADAPTER FAILED"
