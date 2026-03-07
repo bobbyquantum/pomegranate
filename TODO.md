@@ -128,11 +128,11 @@ A running list of outstanding work, grouped by area.
 
 ## Testing — Coverage Gaps
 
-- [ ] `src/utils/` — utility functions have partial coverage
+- [x] `src/utils/` — utility functions covered by direct unit tests (`src/__tests__/utils.test.ts`), with targeted Jest coverage at 100%
 - [ ] `src/observable/` — observation helpers need more edge-case tests
 - [ ] Adapter error paths (corrupt DB, full disk, etc.)
 - [ ] Concurrent write contention tests
 
 ---
 
-_Last updated: 2026-03-07 — Loki migrations now cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, subpath exports verified from packed tarball consumer install_
+_Last updated: 2026-03-07 — utils helpers now have direct unit coverage at 100%, Loki migrations cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, subpath exports verified from packed tarball consumer install_

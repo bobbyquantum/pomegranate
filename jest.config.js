@@ -15,6 +15,7 @@ module.exports = {
     '!src/encryption/nodeCrypto.native.ts',
     '!src/expo.ts',
     '!src/**/index.ts',
+    'src/utils/index.ts',
   ],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
