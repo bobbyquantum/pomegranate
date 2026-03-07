@@ -5,8 +5,10 @@ slug: /docs
 hide_title: true
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 <p align="center">
-  <img src="/img/logo.png" alt="PomegranateDB" width="200" />
+  <img src={useBaseUrl('/img/logo.png')} alt="PomegranateDB" width="200" />
 </p>
 
 <h2 align="center">PomegranateDB</h2>
