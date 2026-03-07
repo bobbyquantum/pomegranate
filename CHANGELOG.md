@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.0](https://github.com/bobbyquantum/pomegranate/compare/v0.1.1...v1.0.0) (2026-03-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* Make encryption imports Snack-safe ([#16](https://github.com/bobbyquantum/pomegranate/issues/16))
+
+### Features
+
+* add sync lifecycle observables ([#14](https://github.com/bobbyquantum/pomegranate/issues/14)) ([e4bcaa2](https://github.com/bobbyquantum/pomegranate/commit/e4bcaa22383754e52ec03009138fdab06b822cc3))
+* **demo:** Add bulk toggle action to todo demos ([#8](https://github.com/bobbyquantum/pomegranate/issues/8)) ([2e26b14](https://github.com/bobbyquantum/pomegranate/commit/2e26b1450ba6dfe3f09721f05a18e0927e9ab7a9))
+
+
+### Bug Fixes
+
+* docs landing page redirect and logo path for baseUrl ([4d04600](https://github.com/bobbyquantum/pomegranate/commit/4d046000154f7bbb89b79c3b7c3b1ddf2dab2be0))
+* Make encryption imports Snack-safe ([#16](https://github.com/bobbyquantum/pomegranate/issues/16)) ([696b16f](https://github.com/bobbyquantum/pomegranate/commit/696b16ff8f78e14ee05d41ea73d01f52df787c34))
+
 ## v0.1.1
 
 ### Demo Apps
