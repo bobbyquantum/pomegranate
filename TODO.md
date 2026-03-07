@@ -120,7 +120,7 @@ A running list of outstanding work, grouped by area.
 - [x] Data persists across reload
 - [x] Input clears after add
 - [x] Empty input rejected
-- [ ] Bulk toggle (complete all / uncomplete all)
+- [x] Bulk toggle (complete all / uncomplete all)
 - [ ] Priority ordering
 - [ ] Drag-to-reorder (if added)
 - [x] Offline persistence stress test (10 todos added, page reloaded, all verified present)

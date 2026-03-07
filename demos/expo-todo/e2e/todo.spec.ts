@@ -193,6 +193,32 @@ test.describe('PomegranateDB Todo Demo', () => {
     expect(statsAfter.done).toBeLessThan(statsMiddle.done);
   });
 
+  test('bulk toggle completes and restores all todos', async ({ page }) => {
+    const titleA = `Bulk toggle A ${Date.now()}`;
+    const titleB = `Bulk toggle B ${Date.now()}`;
+    await addTodo(page, titleA);
+    await addTodo(page, titleB);
+
+    const statsBefore = await getTodoCount(page);
+
+    await page.getByText('Mark all done', { exact: true }).click();
+    await page.waitForTimeout(500);
+
+    const statsDone = await getTodoCount(page);
+    expect(statsDone.done).toBe(statsBefore.done + statsBefore.remaining);
+    expect(statsDone.remaining).toBe(0);
+    await expect(page.getByText('Mark all active', { exact: true })).toBeVisible();
+
+    await page.getByText('Mark all active', { exact: true }).click();
+    await page.waitForTimeout(500);
+
+    const statsRestored = await getTodoCount(page);
+    expect(statsRestored.remaining).toBe(statsBefore.remaining + statsBefore.done);
+    expect(statsRestored.done).toBe(0);
+    await expect(page.getByText(titleA)).toBeVisible();
+    await expect(page.getByText(titleB)).toBeVisible();
+  });
+
   test('data persists across page reloads', async ({ page }) => {
     const title = `Persist me ${Date.now()}`;
     await addTodo(page, title);
