@@ -36,7 +36,9 @@ Before using the database, call `initialize()`:
 await db.initialize();
 ```
 
-This creates tables, runs migrations (if needed), and prepares the adapter. If the database already exists and the schema hasn't changed, this is a no-op.
+This creates tables for fresh installs and prepares the adapter. If the database already exists, this is a no-op unless you reset the database.
+
+Schema upgrades are currently handled separately via the adapter-level migration API described in [Migrations](./advanced/migrations).
 
 ## Accessing Collections
 
