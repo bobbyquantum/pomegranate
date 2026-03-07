@@ -12,6 +12,10 @@
   Build powerful React and React Native apps that scale from hundreds to tens of thousands of records and remain <em>fast</em> ⚡️
 </p>
 
+<p align="center">
+  <a href="https://snack.expo.dev/@bobbyquantum/pomegranate-snack">Try the live Expo Snack demo</a>
+</p>
+
 ---
 
 ### ⚡️ Instant Launch
