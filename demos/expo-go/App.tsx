@@ -241,6 +241,10 @@ function BottomActions() {
   const db = useDatabase();
   const collection = useCollection<Todo>(Todo);
   const { count } = useCount<Todo>(collection);
+  const { count: completedCount } = useCount<Todo>(collection, (qb) => {
+    qb.where('isCompleted', 'eq', true);
+  });
+  const allCompleted = count > 0 && completedCount === count;
 
   const handleSeed = useCallback(async () => {
     const samples = [
@@ -268,6 +272,20 @@ function BottomActions() {
     });
   }, [db]);
 
+  const handleBulkToggle = useCallback(async () => {
+    const nextCompleted = !allCompleted;
+    const todos = await collection.fetch(
+      collection.query((qb) => qb.where('isCompleted', 'eq', !nextCompleted)),
+    );
+    if (todos.length === 0) return;
+
+    await db.write(async () => {
+      for (const todo of todos) {
+        await todo.update({ isCompleted: nextCompleted });
+      }
+    });
+  }, [allCompleted, collection, db]);
+
   return (
     <View style={styles.bottomActions}>
       <Pressable
@@ -276,6 +294,15 @@ function BottomActions() {
       >
         <Text style={styles.actionBtnText}>+ Add samples</Text>
       </Pressable>
+
+      {count > 0 && (
+        <Pressable
+          onPress={handleBulkToggle}
+          style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+        >
+          <Text style={styles.actionBtnText}>{allCompleted ? 'Mark all active' : 'Mark all done'}</Text>
+        </Pressable>
+      )}
 
       {count > 0 && (
         <Pressable

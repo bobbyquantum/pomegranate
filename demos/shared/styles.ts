@@ -279,6 +279,7 @@ export const styles = StyleSheet.create({
   // Bottom actions
   bottomActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 10,
@@ -288,6 +289,7 @@ export const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
+    minWidth: 140,
     paddingVertical: 12,
     borderRadius: 10,
     backgroundColor: POMEGRANATE_FAINT,
