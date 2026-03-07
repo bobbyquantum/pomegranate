@@ -71,7 +71,7 @@ npm install @op-engineering/op-sqlite
 ```
 ```ts
 import { Database, SQLiteAdapter } from 'pomegranate-db';
-import { createOpSQLiteDriver } from 'pomegranate-db/src/adapters/op-sqlite';
+import { createOpSQLiteDriver } from 'pomegranate-db/op-sqlite';
 
 const db = new Database({
   adapter: new SQLiteAdapter({

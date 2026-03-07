@@ -36,7 +36,7 @@ Transparent full-database encryption at the SQLite level. The entire database fi
 
 ```ts
 import { SQLiteAdapter } from 'pomegranate-db';
-import { createOpSQLiteDriver } from 'pomegranate-db/src/adapters/op-sqlite';
+import { createOpSQLiteDriver } from 'pomegranate-db/op-sqlite';
 
 const adapter = new SQLiteAdapter({
   databaseName: 'myapp',

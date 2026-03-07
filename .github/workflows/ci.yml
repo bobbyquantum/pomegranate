@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pomegranate-tarball
-          path: pomegranate-db-0.1.0.tgz
+          path: pomegranate-db-*.tgz
           retention-days: 1
 
   # ─── Expo web e2e ───────────────────────────────────────────────────────────
