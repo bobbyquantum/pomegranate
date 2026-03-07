@@ -102,13 +102,13 @@ jobs:
           ./scripts/setup-sqlite
 
       - name: Pack library tarball
-        run: npm pack
+        run: npm run pack:demo
 
       - name: Upload tarball
         uses: actions/upload-artifact@v4
         with:
           name: pomegranate-tarball
-          path: pomegranate-db-*.tgz
+          path: pomegranate-db-demo.tgz
           retention-days: 1
 
   # ─── Expo web e2e ───────────────────────────────────────────────────────────

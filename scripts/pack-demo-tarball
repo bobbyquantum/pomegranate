@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+TARBALL="$({ npm pack --json; } | node -e '
+let input = "";
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+});
+process.stdin.on("end", () => {
+  const parsed = JSON.parse(input);
+  const filename = parsed?.[0]?.filename;
+  if (!filename) {
+    console.error("npm pack did not return a tarball filename");
+    process.exit(1);
+  }
+  process.stdout.write(filename);
+});
+')"
+
+mv -f "$TARBALL" pomegranate-db-demo.tgz
+echo "Packed $TARBALL -> pomegranate-db-demo.tgz"
