@@ -3,13 +3,14 @@
  */
 
 import { EncryptionManager } from '../encryption';
+import { nodeCryptoProvider } from '../encryption/node';
 
 describe('EncryptionManager', () => {
   // Generate a test key (32 bytes for AES-256)
   const testKey = new Uint8Array(32);
   for (let i = 0; i < 32; i++) testKey[i] = i;
 
-  const manager = new EncryptionManager(async () => testKey);
+  const manager = new EncryptionManager(async () => testKey, nodeCryptoProvider);
 
   it('encrypts and decrypts a string', async () => {
     const plaintext = 'Hello, World!';

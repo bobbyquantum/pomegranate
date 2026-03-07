@@ -56,19 +56,22 @@ const adapter = new LokiAdapter({
 ## Limitations
 
 - **Not suitable for very large datasets** — everything lives in memory (persistence adapters save/load the full DB)
-- **No encryption** — use the `EncryptingAdapter` wrapper for at-rest encryption
+- **No encryption** — use the `EncryptingAdapter` wrapper from `pomegranate-db/encryption` for at-rest encryption
 
 ## With Encryption
 
 Wrap `LokiAdapter` with `EncryptingAdapter` for AES-GCM encryption:
 
 ```ts
-import { LokiAdapter, EncryptingAdapter } from 'pomegranate-db';
+import { LokiAdapter } from 'pomegranate-db';
+import { EncryptingAdapter } from 'pomegranate-db/encryption/react-native';
 
-const adapter = new EncryptingAdapter({
-  adapter: new LokiAdapter({ databaseName: 'myapp' }),
-  password: 'user-secret',
-});
+const key = new TextEncoder().encode('0123456789abcdef0123456789abcdef');
+
+const adapter = new EncryptingAdapter(
+  new LokiAdapter({ databaseName: 'myapp' }),
+  async () => key,
+);
 ```
 
 ## Configuration

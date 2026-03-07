@@ -76,9 +76,6 @@ export type {
   SyncLog,
 } from './sync';
 
-// ─── Encryption ────────────────────────────────────────────────────────────
-export { EncryptionManager, EncryptingAdapter } from './encryption';
-
 // ─── Observable ────────────────────────────────────────────────────────────
 export { Subject, BehaviorSubject, SharedObservable } from './observable';
 export type { Observable, Listener, Unsubscribe } from './observable';

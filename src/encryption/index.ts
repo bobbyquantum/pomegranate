@@ -1,18 +1,93 @@
 /**
  * Encryption layer — transparent encrypt/decrypt for storage adapters.
  *
- * Wraps a StorageAdapter, encrypting record values before writes
- * and decrypting after reads. Uses AES-GCM (Web Crypto API or Node crypto).
- *
- * The encryption is transparent to the model/collection layer.
- * Only user-data columns are encrypted; id, _status, _changed are stored in plaintext
- * so the adapter can still query by them.
+ * This shared entry only depends on Web Crypto primitives so it stays safe for
+ * Expo Snack and React Native bundles. Node-specific crypto support lives in
+ * `pomegranate-db/encryption/node`.
  */
 
-import type { StorageAdapter, Migration, EncryptionConfig } from '../adapters/types';
+import type { StorageAdapter, Migration } from '../adapters/types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../query/types';
 import type { DatabaseSchema, RawRecord } from '../schema/types';
-import { createCipheriv, createDecipheriv, randomBytesNode, isNodeCryptoAvailable } from './nodeCrypto';
+
+export interface EncryptionProvider {
+  readonly name: string;
+  readonly supportsAuthTag: boolean;
+  randomBytes(length: number): Promise<Uint8Array> | Uint8Array;
+  encrypt(
+    key: Uint8Array,
+    iv: Uint8Array,
+    plaintext: Uint8Array,
+  ): Promise<{ ciphertext: Uint8Array; tag?: Uint8Array }> | { ciphertext: Uint8Array; tag?: Uint8Array };
+  decrypt(
+    key: Uint8Array,
+    iv: Uint8Array,
+    ciphertext: Uint8Array,
+    tag?: Uint8Array,
+  ): Promise<Uint8Array> | Uint8Array;
+}
+
+function getWebCrypto(): NonNullable<typeof globalThis.crypto> {
+  if (globalThis.crypto === undefined || globalThis.crypto.subtle === undefined) {
+    throw new Error(
+      'Web Crypto API is not available in this runtime. '
+        + 'Import pomegranate-db/encryption/node in Node.js environments '
+        + 'without globalThis.crypto.subtle.',
+    );
+  }
+  return globalThis.crypto;
+}
+
+export const webCryptoProvider: EncryptionProvider = {
+  name: 'web-crypto',
+  supportsAuthTag: false,
+  randomBytes(length: number): Uint8Array {
+    if (globalThis.crypto?.getRandomValues) {
+      const buf = new Uint8Array(length);
+      globalThis.crypto.getRandomValues(buf);
+      return buf;
+    }
+
+    // Last resort for non-cryptographic test environments.
+    const buf = new Uint8Array(length);
+    for (let i = 0; i < length; i++) {
+      buf[i] = Math.floor(Math.random() * 256);
+    }
+    return buf;
+  },
+  async encrypt(key: Uint8Array, iv: Uint8Array, plaintext: Uint8Array) {
+    const crypto = getWebCrypto();
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      key.buffer as ArrayBuffer,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt'],
+    );
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
+      cryptoKey,
+      plaintext.buffer as ArrayBuffer,
+    );
+    return { ciphertext: new Uint8Array(encrypted) };
+  },
+  async decrypt(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array) {
+    const crypto = getWebCrypto();
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      key.buffer as ArrayBuffer,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt'],
+    );
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
+      cryptoKey,
+      ciphertext.buffer as ArrayBuffer,
+    );
+    return new Uint8Array(decrypted);
+  },
+};
 
 // ─── Columns that are never encrypted ──────────────────────────────────
 
@@ -23,9 +98,14 @@ const PLAINTEXT_COLUMNS = new Set(['id', '_status', '_changed']);
 export class EncryptionManager {
   private _key: Uint8Array | null = null;
   private _keyProvider: () => Promise<Uint8Array>;
+  private _provider: EncryptionProvider;
 
-  constructor(keyProvider: () => Promise<Uint8Array>) {
+  constructor(
+    keyProvider: () => Promise<Uint8Array>,
+    provider: EncryptionProvider = webCryptoProvider,
+  ) {
     this._keyProvider = keyProvider;
+    this._provider = provider;
   }
 
   async getKey(): Promise<Uint8Array> {
@@ -38,39 +118,18 @@ export class EncryptionManager {
   /** Encrypt a string value */
   async encrypt(plaintext: string): Promise<string> {
     const key = await this.getKey();
-    const iv = await randomBytes(12);
+    const iv = await this._provider.randomBytes(12);
     const encoder = new TextEncoder();
     const data = encoder.encode(plaintext);
-
-    if (globalThis.crypto !== undefined && globalThis.crypto.subtle) {
-      // Web Crypto API
-      const cryptoKey = await globalThis.crypto.subtle.importKey(
-        'raw',
-        key.buffer as ArrayBuffer,
-        { name: 'AES-GCM' },
-        false,
-        ['encrypt'],
-      );
-      const encrypted = await globalThis.crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
-        cryptoKey,
-        data.buffer as ArrayBuffer,
-      );
-      return encodeBase64(iv) + ':' + encodeBase64(new Uint8Array(encrypted));
-    }
-
-    // Fallback: Node.js crypto
-    if (isNodeCryptoAvailable) {
-      try {
-        const cipher = createCipheriv('aes-256-gcm', key, iv);
-        const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
-        const tag = cipher.getAuthTag();
-        return encodeBase64(iv) + ':' + encodeBase64(encrypted) + ':' + encodeBase64(tag);
-      } catch {
-        throw new Error('No crypto implementation available for encryption');
+    try {
+      const { ciphertext, tag } = await this._provider.encrypt(key, iv, data);
+      if (this._provider.supportsAuthTag && tag) {
+        return encodeBase64(iv) + ':' + encodeBase64(ciphertext) + ':' + encodeBase64(tag);
       }
+      return encodeBase64(iv) + ':' + encodeBase64(ciphertext);
+    } catch {
+      throw new Error('No crypto implementation available for encryption');
     }
-    throw new Error('No crypto implementation available for encryption');
   }
 
   /** Decrypt a string value */
@@ -78,40 +137,15 @@ export class EncryptionManager {
     const key = await this.getKey();
     const parts = ciphertext.split(':');
 
-    if (globalThis.crypto !== undefined && globalThis.crypto.subtle) {
-      // Web Crypto API
+    try {
       const iv = decodeBase64(parts[0]);
       const data = decodeBase64(parts[1]);
-      const cryptoKey = await globalThis.crypto.subtle.importKey(
-        'raw',
-        key.buffer as ArrayBuffer,
-        { name: 'AES-GCM' },
-        false,
-        ['decrypt'],
-      );
-      const decrypted = await globalThis.crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
-        cryptoKey,
-        data.buffer as ArrayBuffer,
-      );
+      const tag = parts[2] ? decodeBase64(parts[2]) : undefined;
+      const decrypted = await this._provider.decrypt(key, iv, data, tag);
       return new TextDecoder().decode(decrypted);
+    } catch (error) {
+      throw new Error(`Decryption failed: ${error}`, { cause: error });
     }
-
-    // Fallback: Node.js crypto
-    if (isNodeCryptoAvailable) {
-      try {
-        const iv = decodeBase64(parts[0]);
-        const data = decodeBase64(parts[1]);
-        const tag = decodeBase64(parts[2]);
-        const decipher = createDecipheriv('aes-256-gcm', key, iv);
-        decipher.setAuthTag(tag);
-        const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-        return new TextDecoder().decode(decrypted);
-      } catch (error) {
-        throw new Error(`Decryption failed: ${error}`, { cause: error });
-      }
-    }
-    throw new Error('No crypto implementation available for decryption');
   }
 }
 
@@ -125,9 +159,13 @@ export class EncryptingAdapter implements StorageAdapter {
   private _inner: StorageAdapter;
   private _encryption: EncryptionManager;
 
-  constructor(inner: StorageAdapter, keyProvider: () => Promise<Uint8Array>) {
+  constructor(
+    inner: StorageAdapter,
+    keyProvider: () => Promise<Uint8Array>,
+    provider: EncryptionProvider = webCryptoProvider,
+  ) {
     this._inner = inner;
-    this._encryption = new EncryptionManager(keyProvider);
+    this._encryption = new EncryptionManager(keyProvider, provider);
   }
 
   async initialize(schema: DatabaseSchema): Promise<void> {
@@ -291,29 +329,6 @@ export class EncryptingAdapter implements StorageAdapter {
 
     return decrypted as RawRecord;
   }
-}
-
-// ─── Utility functions ──────────────────────────────────────────────────
-
-async function randomBytes(length: number): Promise<Uint8Array> {
-  if (globalThis.crypto !== undefined && globalThis.crypto.getRandomValues) {
-    const buf = new Uint8Array(length);
-    globalThis.crypto.getRandomValues(buf);
-    return buf;
-  }
-
-  if (isNodeCryptoAvailable) {
-    try {
-      return randomBytesNode(length);
-    } catch { /* fall through to Math.random */ }
-  }
-
-  // Last resort: Math.random (NOT cryptographically secure)
-  const buf = new Uint8Array(length);
-  for (let i = 0; i < length; i++) {
-    buf[i] = Math.floor(Math.random() * 256);
-  }
-  return buf;
 }
 
 function encodeBase64(data: Uint8Array | Buffer): string {

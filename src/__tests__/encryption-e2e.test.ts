@@ -11,6 +11,7 @@
  */
 
 import { EncryptionManager, EncryptingAdapter } from '../encryption';
+import { nodeCryptoProvider } from '../encryption/node';
 import { LokiAdapter } from '../adapters/loki/LokiAdapter';
 import { Database } from '../database/Database';
 import { Model } from '../model/Model';
@@ -42,7 +43,7 @@ class Note extends Model<typeof NoteSchema> {
 
 function createEncryptedStack(keySeed = 0) {
   const innerAdapter = new LokiAdapter({ databaseName: `enc-test-${Date.now()}` });
-  const encAdapter = new EncryptingAdapter(innerAdapter, async () => makeKey(keySeed));
+  const encAdapter = new EncryptingAdapter(innerAdapter, async () => makeKey(keySeed), nodeCryptoProvider);
   return { innerAdapter, encAdapter };
 }
 
@@ -225,10 +226,7 @@ describe('Encryption E2E', () => {
       await writer.close();
 
       // Read with key seed 99 (different key)
-      const wrongKeyAdapter = new EncryptingAdapter(
-        innerAdapter,
-        async () => makeKey(99),
-      );
+      const wrongKeyAdapter = new EncryptingAdapter(innerAdapter, async () => makeKey(99), nodeCryptoProvider);
       // Don't re-initialize; just read from the existing inner adapter
       const record = await wrongKeyAdapter.findById('notes', 'wrongkey1');
 
@@ -422,7 +420,7 @@ describe('Encryption E2E', () => {
   describe('Full Database + Encryption stack', () => {
     it('CRUD works through Database with encrypted adapter', async () => {
       const innerAdapter = new LokiAdapter({ databaseName: `db-enc-full-${Date.now()}` });
-      const encAdapter = new EncryptingAdapter(innerAdapter, async () => makeKey());
+      const encAdapter = new EncryptingAdapter(innerAdapter, async () => makeKey(), nodeCryptoProvider);
 
       const db = new Database({
         adapter: encAdapter,
@@ -462,7 +460,7 @@ describe('Encryption E2E', () => {
 
     it('sync round-trip works through Database with encryption', async () => {
       const innerAdapter = new LokiAdapter({ databaseName: `db-enc-sync-${Date.now()}` });
-      const encAdapter = new EncryptingAdapter(innerAdapter, async () => makeKey());
+      const encAdapter = new EncryptingAdapter(innerAdapter, async () => makeKey(), nodeCryptoProvider);
 
       const db = new Database({
         adapter: encAdapter,
@@ -521,7 +519,7 @@ describe('Encryption E2E', () => {
       const manager = new EncryptionManager(async () => {
         callCount++;
         return makeKey();
-      });
+      }, nodeCryptoProvider);
 
       await manager.encrypt('first');
       await manager.encrypt('second');
@@ -535,7 +533,7 @@ describe('Encryption E2E', () => {
       const manager = new EncryptionManager(async () => {
         // In real app: const key = await PBKDF2(pin, salt, iterations);
         return makeKey(42);
-      });
+      }, nodeCryptoProvider);
 
       const encrypted = await manager.encrypt('test data');
       const decrypted = await manager.decrypt(encrypted);

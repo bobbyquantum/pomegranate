@@ -124,7 +124,7 @@ On web, expo-sqlite uses the **Origin Private File System (OPFS)** when availabl
 ## Limitations
 
 - Requires Expo SDK 52+ (expo-sqlite v14+). We recommend **SDK 54+** (expo-sqlite 16).
-- No built-in encryption (use `EncryptingAdapter` for JS-level encryption)
+- No built-in encryption (use `pomegranate-db/encryption/react-native` for JS-level encryption)
 - Slightly slower than JSI-based options on native due to async API overhead
 - Web WASM is slower than native SQLite, but fine for typical app workloads
 
