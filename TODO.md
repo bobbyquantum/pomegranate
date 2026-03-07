@@ -27,7 +27,7 @@ A running list of outstanding work, grouped by area.
 
 ## Sync
 
-- [ ] **SyncState / SyncLog observables** — `SyncState` and `SyncLog` types are defined but the observable/streaming API is not wired up
+- [x] **SyncState / SyncLog observables** — `Database` now exposes `syncState$` / `syncLog$` plus `observeSyncState()` / `observeSyncLog()` with lifecycle updates for success and failure
 - [ ] End-to-end sync integration test against a mock server
 - [x] Conflict resolution documentation
 
@@ -135,4 +135,4 @@ A running list of outstanding work, grouped by area.
 
 ---
 
-_Last updated: 2026-03-07 — utils helpers now have direct unit coverage at 100%, observable helpers cover subscription lifecycle edge cases, Loki migrations cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, migration/schema evolution guide now documents the manual adapter migration workflow, sync conflict resolution is now documented, subpath exports verified from packed tarball consumer install_
+_Last updated: 2026-03-07 — utils helpers now have direct unit coverage at 100%, observable helpers cover subscription lifecycle edge cases, Loki migrations cover `createTable` / `addColumn` / `sql` / `destroyTable`, adapter-level migration tests updated, migration/schema evolution guide now documents the manual adapter migration workflow, sync conflict resolution is now documented, sync lifecycle state/log observables are now wired through `Database.sync()`, subpath exports verified from packed tarball consumer install_
