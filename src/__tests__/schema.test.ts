@@ -57,32 +57,36 @@ describe('Schema Builder', () => {
 
   describe('m.belongsTo()', () => {
     it('creates a belongs_to relation descriptor', () => {
-      const rel = m.belongsTo('users', { key: 'author_id' });
+      const FakeSchema = m.model('users', { name: m.text() });
+      const rel = m.belongsTo(() => FakeSchema, { key: 'author_id' });
       expect(rel.kind).toBe('belongs_to');
-      expect(rel.relatedTable).toBe('users');
+      expect(rel._relatedSchemaThunk().table).toBe('users');
       expect(rel.foreignKey).toBe('author_id');
     });
   });
 
   describe('m.hasMany()', () => {
     it('creates a has_many relation descriptor', () => {
-      const rel = m.hasMany('comments', { foreignKey: 'post_id' });
+      const FakeSchema = m.model('comments', { body: m.text() });
+      const rel = m.hasMany(() => FakeSchema, { foreignKey: 'post_id' });
       expect(rel.kind).toBe('has_many');
-      expect(rel.relatedTable).toBe('comments');
+      expect(rel._relatedSchemaThunk().table).toBe('comments');
       expect(rel.foreignKey).toBe('post_id');
     });
   });
 
   describe('m.model()', () => {
     it('creates a complete model schema', () => {
+      const UserSchema = m.model('users', { name: m.text() });
+      const CommentSchema = m.model('comments', { body: m.text() });
       const PostSchema = m.model('posts', {
         title: m.text(),
         body: m.text(),
         status: m.text().indexed(),
         isPinned: m.boolean().default(false),
         createdAt: m.date('created_at').readonly(),
-        author: m.belongsTo('users', { key: 'author_id' }),
-        comments: m.hasMany('comments', { foreignKey: 'post_id' }),
+        author: m.belongsTo(() => UserSchema, { key: 'author_id' }),
+        comments: m.hasMany(() => CommentSchema, { foreignKey: 'post_id' }),
       });
 
       expect(PostSchema.table).toBe('posts');

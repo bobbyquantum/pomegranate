@@ -17,16 +17,19 @@
 
 import type {
   ModelSchema,
-  SchemaFields,
   RawRecord,
   SyncStatus,
-  InferUpdatePatch,
   ResolvedColumn,
+  BelongsToDescriptor,
+  HasManyDescriptor,
+  BelongsToRelation,
+  HasManyRelation,
 } from '../schema/types';
-import type { Subject } from '../observable/Subject';
 import { BehaviorSubject } from '../observable/Subject';
 import type { Observable } from '../observable/Subject';
 import { generateId, dateToTimestamp, timestampToDate } from '../utils';
+import type { RelationDatabaseRef } from './Relation';
+import { BelongsToRelationImpl, HasManyRelationImpl } from './Relation';
 
 // ─── Forward declarations (avoid circular imports) ─────────────────────────
 
@@ -40,7 +43,7 @@ export interface ModelCollectionRef {
 }
 
 /** Minimal interface for what a Database provides */
-export interface ModelDatabaseRef {
+export interface ModelDatabaseRef extends RelationDatabaseRef {
   _ensureInWriter(action: string): void;
   _batch(
     operations: Array<{
@@ -116,15 +119,80 @@ export class Model<S extends ModelSchema = ModelSchema> {
     const col = schema.columns.find((c) => c.fieldName === fieldName);
     if (!col) {
       // Check if it's a relation field name
-      const rel = schema.relations.find((r) => r.fieldName === fieldName);
-      if (rel && rel.kind === 'belongs_to') {
-        return this.#raw[rel.foreignKey];
+      const relation = schema.relations.find((r) => r.fieldName === fieldName);
+      if (relation && relation.kind === 'belongs_to') {
+        return this.#raw[relation.foreignKey];
       }
       throw new Error(`Unknown field "${fieldName}" on table "${schema.table}"`);
     }
 
     const rawValue = this.#raw[col.columnName];
     return deserializeValue(col, rawValue);
+  }
+
+  // ─── Relation Accessors ─────────────────────────────────────────────
+
+  /**
+   * Get a typed belongs-to relation handle.
+   *
+   * The return type is inferred from the schema: if the field is a
+   * BelongsToDescriptor<UserSchema>, the return is BelongsToRelation<UserSchema>.
+   *
+   * Usage in subclass:
+   *   get author() { return this.belongsTo('author'); }
+   *   // TS infers: BelongsToRelation<typeof UserSchema>
+   */
+  belongsTo<K extends keyof S['fields'] & string>(
+    fieldName: K,
+  ): S['fields'][K] extends BelongsToDescriptor<infer RS>
+    ? BelongsToRelation<RS>
+    : BelongsToRelation {
+    const schema = (this.constructor as typeof Model).schema;
+    const relation = schema.relations.find(
+      (r) => r.fieldName === fieldName && r.kind === 'belongs_to',
+    );
+    if (!relation) {
+      throw new Error(`No belongs_to relation "${fieldName}" on table "${schema.table}"`);
+    }
+    const db = this.collection._getDatabase();
+    return new BelongsToRelationImpl(
+      () => (this.#raw[relation.foreignKey] as string) ?? null,
+      relation._relatedSchemaThunk,
+      db,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) as any;
+  }
+
+  /**
+   * Get a typed has-many relation handle.
+   *
+   * The return type is inferred from the schema: if the field is a
+   * HasManyDescriptor<CommentSchema>, the return is HasManyRelation<CommentSchema>.
+   *
+   * Usage in subclass:
+   *   get comments() { return this.hasMany('comments'); }
+   *   // TS infers: HasManyRelation<typeof CommentSchema>
+   */
+  hasMany<K extends keyof S['fields'] & string>(
+    fieldName: K,
+  ): S['fields'][K] extends HasManyDescriptor<infer RS>
+    ? HasManyRelation<RS>
+    : HasManyRelation {
+    const schema = (this.constructor as typeof Model).schema;
+    const relation = schema.relations.find(
+      (r) => r.fieldName === fieldName && r.kind === 'has_many',
+    );
+    if (!relation) {
+      throw new Error(`No has_many relation "${fieldName}" on table "${schema.table}"`);
+    }
+    const db = this.collection._getDatabase();
+    return new HasManyRelationImpl(
+      this.id,
+      relation.foreignKey,
+      relation._relatedSchemaThunk,
+      db,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) as any;
   }
 
   /**
@@ -183,12 +251,12 @@ export class Model<S extends ModelSchema = ModelSchema> {
         changedColumns.push(col.columnName);
       } else {
         // Check belongs_to
-        const rel = schema.relations.find(
+        const relation = schema.relations.find(
           (r) => r.fieldName === fieldName && r.kind === 'belongs_to',
         );
-        if (rel) {
-          rawUpdates[rel.foreignKey] = value;
-          changedColumns.push(rel.foreignKey);
+        if (relation) {
+          rawUpdates[relation.foreignKey] = value;
+          changedColumns.push(relation.foreignKey);
         } else {
           throw new Error(`Unknown field "${fieldName}" on table "${schema.table}"`);
         }

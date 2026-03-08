@@ -38,16 +38,27 @@ export interface DateColumn extends ColumnDescriptor {
 
 export type RelationType = 'belongs_to' | 'has_many';
 
-export interface BelongsToDescriptor {
+/**
+ * Belongs-to (many-to-one) relation descriptor.
+ * Generic over the related ModelSchema so TypeScript can infer the related type.
+ * The thunk `_relatedSchemaThunk` is resolved lazily to support forward references.
+ */
+export interface BelongsToDescriptor<S extends ModelSchema = ModelSchema> {
   readonly kind: 'belongs_to';
-  readonly relatedTable: string;
   readonly foreignKey: string;
+  /** @internal Lazy reference to the related schema — supports forward references */
+  readonly _relatedSchemaThunk: () => S;
 }
 
-export interface HasManyDescriptor {
+/**
+ * Has-many (one-to-many) relation descriptor.
+ * Generic over the related ModelSchema so TypeScript can infer the related type.
+ */
+export interface HasManyDescriptor<S extends ModelSchema = ModelSchema> {
   readonly kind: 'has_many';
-  readonly relatedTable: string;
   readonly foreignKey: string;
+  /** @internal Lazy reference to the related schema — supports forward references */
+  readonly _relatedSchemaThunk: () => S;
 }
 
 export type RelationDescriptor = BelongsToDescriptor | HasManyDescriptor;
@@ -82,8 +93,9 @@ export interface ResolvedColumn {
 export interface ResolvedRelation {
   readonly fieldName: string;
   readonly kind: RelationType;
-  readonly relatedTable: string;
   readonly foreignKey: string;
+  /** @internal Lazy reference — call to get the related schema's table name */
+  readonly _relatedSchemaThunk: () => ModelSchema;
 }
 
 // ─── Database-level Schema ─────────────────────────────────────────────────
@@ -105,6 +117,39 @@ export interface TableColumnSchema {
   readonly isIndexed: boolean;
 }
 
+// ─── Relation Wrapper Types ────────────────────────────────────────────────
+
+import type { Observable } from '../observable/Subject';
+
+/** Lazy belongs-to relation handle (many-to-one). */
+export interface BelongsToRelation<S extends ModelSchema = ModelSchema> {
+  /** The foreign key value (the related record's ID) */
+  readonly id: string | null;
+  /** Fetch the related record */
+  fetch(): Promise<ModelInstance<S> | null>;
+  /** Observe the related record reactively */
+  observe(): Observable<ModelInstance<S> | null>;
+}
+
+/** Lazy has-many relation handle (one-to-many). */
+export interface HasManyRelation<S extends ModelSchema = ModelSchema> {
+  /** Fetch all related records */
+  fetch(): Promise<ModelInstance<S>[]>;
+  /** Observe the related records reactively */
+  observe(): Observable<ModelInstance<S>[]>;
+}
+
+/**
+ * A model instance typed by its schema.
+ * Forward-declared as a minimal interface to avoid circular imports.
+ * Full Model class satisfies this at runtime.
+ */
+export interface ModelInstance<S extends ModelSchema = ModelSchema> {
+  readonly id: string;
+  getField(fieldName: string): unknown;
+  observe(): Observable<ModelInstance<S>>;
+}
+
 // ─── Type Inference Helpers ────────────────────────────────────────────────
 
 /** Infer the runtime TypeScript type from a ColumnDescriptor */
@@ -121,13 +166,13 @@ export type InferColumnType<C extends ColumnDescriptor> = C['type'] extends 'tex
 /** For optional columns, make the type T | null */
 type MaybeOptional<C extends ColumnDescriptor, T> = C['isOptional'] extends true ? T | null : T;
 
-/** Infer column type respecting optionality */
+/** Infer field type — columns resolve to values, relations resolve to relation wrappers */
 export type InferField<C extends FieldDescriptor> = C extends ColumnDescriptor
   ? MaybeOptional<C, InferColumnType<C>>
-  : C extends BelongsToDescriptor
-    ? string // foreign key value (ID)
-    : C extends HasManyDescriptor
-      ? never // has_many is query-only, not a stored field
+  : C extends BelongsToDescriptor<infer S>
+    ? BelongsToRelation<S>
+    : C extends HasManyDescriptor<infer S>
+      ? HasManyRelation<S>
       : never;
 
 /** The record shape inferred from schema fields (writable columns only) */
@@ -141,14 +186,14 @@ export type InferCreatePatch<F extends SchemaFields> = {
       : never]: F[K] extends ColumnDescriptor
     ? MaybeOptional<F[K], InferColumnType<F[K]>>
     : F[K] extends BelongsToDescriptor
-      ? string
+      ? string // create/update patches accept the FK id as a string
       : never;
 };
 
 /** The record shape for updates — all writable fields optional */
 export type InferUpdatePatch<F extends SchemaFields> = Partial<InferCreatePatch<F>>;
 
-/** Full record shape (all columns + belongs_to keys) */
+/** Full record shape (all columns + relation wrappers) */
 export type InferRecord<F extends SchemaFields> = {
   readonly id: string;
 } & {

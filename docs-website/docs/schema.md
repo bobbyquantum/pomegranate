@@ -58,25 +58,34 @@ If you have already shipped your app, treat schema changes as an upgrade path pr
 
 ### Relations
 
+Relations use **thunks** (arrow functions returning a schema) so that TypeScript can infer the related model type — and forward references work even when schemas are defined in any order.
+
 ```ts
+const UserSchema = m.model('users', {
+  name: m.text(),
+  email: m.text().indexed(),
+});
+
 const CommentSchema = m.model('comments', {
   body: m.text(),
   // Many-to-one: a comment belongs to a post
-  post: m.belongsTo('posts', { key: 'post_id' }),
+  post: m.belongsTo(() => PostSchema, { key: 'post_id' }),
   // A comment belongs to an author
-  author: m.belongsTo('users', { key: 'author_id' }),
+  author: m.belongsTo(() => UserSchema, { key: 'author_id' }),
 });
 
 const PostSchema = m.model('posts', {
   title: m.text(),
   body: m.text(),
+  // Many-to-one: a post belongs to an author
+  author: m.belongsTo(() => UserSchema, { key: 'author_id' }),
   // One-to-many: a post has many comments (query-only, no stored column)
-  comments: m.hasMany('comments', { foreignKey: 'post_id' }),
+  comments: m.hasMany(() => CommentSchema, { foreignKey: 'post_id' }),
 });
 ```
 
-- `m.belongsTo(table, { key })` — adds a foreign key column to this table
-- `m.hasMany(table, { foreignKey })` — declares a query-time relation (no column stored)
+- `m.belongsTo(() => Schema, { key })` — adds a foreign key column to this table
+- `m.hasMany(() => Schema, { foreignKey })` — declares a query-time relation (no column stored)
 
 ## Built-In Sync Columns
 
@@ -97,13 +106,27 @@ The schema carries full type information. When you extend `Model<typeof YourSche
 ```ts
 class Post extends Model<typeof PostSchema> {
   static schema = PostSchema;
+
+  // Define typed relation getters
+  get author() { return this.belongsTo('author'); }
+  get comments() { return this.hasMany('comments'); }
 }
 
 // TypeScript knows:
-// post.title → string
-// post.viewCount → number
+// post.title      → string
+// post.viewCount  → number
 // post.isPublished → boolean
-// post.createdAt → Date
+// post.createdAt  → Date
+
+// Relation handles — fully typed from the schema:
+// post.author     → BelongsToRelation<typeof UserSchema>
+// post.comments   → HasManyRelation<typeof CommentSchema>
+
+// Usage:
+const author = await post.author.fetch();   // ModelInstance<typeof UserSchema> | null
+const comments = await post.comments.fetch(); // ModelInstance<typeof CommentSchema>[]
+post.author.observe();   // Observable<ModelInstance<typeof UserSchema> | null>
+post.comments.observe(); // Observable<ModelInstance<typeof CommentSchema>[]>
 ```
 
 See [Models](./models) for how to use schemas with model classes.

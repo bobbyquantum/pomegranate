@@ -236,6 +236,50 @@ export class Database implements ModelDatabaseRef {
     await this._adapter.batch(operations);
   }
 
+  // ─── Relation Resolution (RelationDatabaseRef) ─────────────────────
+
+  /** @internal Find a record by table+id for relation resolution */
+  async _findById(table: string, id: string): Promise<Model | null> {
+    const collection = this._collections.get(table);
+    if (!collection) {
+      throw new Error(`No collection registered for table "${table}"`);
+    }
+    return collection.findById(id);
+  }
+
+  /** @internal Observe a record by table+id for relation resolution */
+  _observeById(table: string, id: string): Observable<Model | null> {
+    const collection = this._collections.get(table);
+    if (!collection) {
+      throw new Error(`No collection registered for table "${table}"`);
+    }
+    return collection.observeById(id);
+  }
+
+  /** @internal Fetch related records for has-many relation */
+  async _fetchRelated(table: string, foreignKey: string, id: string): Promise<Model[]> {
+    const collection = this._collections.get(table);
+    if (!collection) {
+      throw new Error(`No collection registered for table "${table}"`);
+    }
+    const qb = collection.query((q) => {
+      q.where(foreignKey, 'eq', id);
+    });
+    return collection.fetch(qb);
+  }
+
+  /** @internal Observe related records for has-many relation */
+  _observeRelated(table: string, foreignKey: string, id: string): Observable<Model[]> {
+    const collection = this._collections.get(table);
+    if (!collection) {
+      throw new Error(`No collection registered for table "${table}"`);
+    }
+    const qb = collection.query((q) => {
+      q.where(foreignKey, 'eq', id);
+    });
+    return collection.observeQuery(qb);
+  }
+
   // ─── Sync ──────────────────────────────────────────────────────────
 
   /**

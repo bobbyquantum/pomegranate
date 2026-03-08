@@ -22,28 +22,6 @@ class User extends Model<typeof UserSchema> {
   static schema = UserSchema;
 }
 
-const PostSchema = m.model('posts', {
-  title: m.text(),
-  body: m.text(),
-  status: m.text().default('draft').indexed(),
-  views: m.number().default(0),
-  isPinned: m.boolean().default(false),
-  createdAt: m.date('created_at').readonly(),
-  author: m.belongsTo('users', { key: 'author_id' }),
-  comments: m.hasMany('comments', { foreignKey: 'post_id' }),
-});
-
-class Post extends Model<typeof PostSchema> {
-  static schema = PostSchema;
-
-  publish = this.writer(async () => {
-    await this.update({ status: 'published' });
-  });
-}
-
-// Type assertion helper for writer methods
-type PostWithWriter = Post & { publish: () => Promise<void> };
-
 const CommentSchema = m.model('comments', {
   body: m.text(),
   postId: m.text('post_id').indexed(),
@@ -52,6 +30,36 @@ const CommentSchema = m.model('comments', {
 class Comment extends Model<typeof CommentSchema> {
   static schema = CommentSchema;
 }
+
+const PostSchema = m.model('posts', {
+  title: m.text(),
+  body: m.text(),
+  status: m.text().default('draft').indexed(),
+  views: m.number().default(0),
+  isPinned: m.boolean().default(false),
+  createdAt: m.date('created_at').readonly(),
+  author: m.belongsTo(() => UserSchema, { key: 'author_id' }),
+  comments: m.hasMany(() => CommentSchema, { foreignKey: 'post_id' }),
+});
+
+class Post extends Model<typeof PostSchema> {
+  static schema = PostSchema;
+
+  get author() {
+    return this.belongsTo('author');
+  }
+
+  get comments() {
+    return this.hasMany('comments');
+  }
+
+  publish = this.writer(async () => {
+    await this.update({ status: 'published' });
+  });
+}
+
+// Type assertion helper for writer methods
+type PostWithWriter = Post & { publish: () => Promise<void> };
 
 // ─── Test helpers ──────────────────────────────────────────────────────────
 
@@ -459,6 +467,90 @@ describe('Database + LokiAdapter Integration', () => {
       await db.initialize();
       const count = await db.get(User).count();
       expect(count).toBe(0);
+    });
+  });
+
+  describe('Typed Relations', () => {
+    it('belongsTo.fetch() returns the related record', async () => {
+      let user: User;
+      let post: Post;
+
+      await db.write(async () => {
+        user = (await db.get(User).create({ name: 'Alice', email: 'alice@test.com' })) as User;
+        post = (await db.get(Post).create({
+          title: 'Hello',
+          body: 'World',
+          author: user.id,
+        })) as Post;
+      });
+
+      const author = await post!.author.fetch();
+      expect(author).not.toBeNull();
+      expect(author!.id).toBe(user!.id);
+      expect(author!.getField('name')).toBe('Alice');
+    });
+
+    it('belongsTo.id returns the foreign key value', async () => {
+      let user: User;
+      let post: Post;
+
+      await db.write(async () => {
+        user = (await db.get(User).create({ name: 'Alice', email: 'alice@test.com' })) as User;
+        post = (await db.get(Post).create({
+          title: 'Hello',
+          body: 'World',
+          author: user.id,
+        })) as Post;
+      });
+
+      expect(post!.author.id).toBe(user!.id);
+    });
+
+    it('hasMany.fetch() returns related records', async () => {
+      let post: Post;
+
+      await db.write(async () => {
+        post = (await db.get(Post).create({
+          title: 'Hello',
+          body: 'World',
+        })) as Post;
+        await db.get(Comment).create({ body: 'Nice!', postId: post.id });
+        await db.get(Comment).create({ body: 'Great!', postId: post.id });
+        await db.get(Comment).create({ body: 'Unrelated', postId: 'other-id' });
+      });
+
+      const comments = await post!.comments.fetch();
+      expect(comments).toHaveLength(2);
+      expect(comments.map((c) => c.getField('body'))).toContain('Nice!');
+      expect(comments.map((c) => c.getField('body'))).toContain('Great!');
+    });
+
+    it('belongsTo.fetch() returns null when FK is not set', async () => {
+      let post: Post;
+
+      await db.write(async () => {
+        post = (await db.get(Post).create({
+          title: 'Orphan',
+          body: 'No author',
+        })) as Post;
+      });
+
+      const author = await post!.author.fetch();
+      expect(author).toBeNull();
+    });
+
+    it('hasMany.fetch() returns empty array when no related records exist', async () => {
+      let post: Post;
+
+      await db.write(async () => {
+        post = (await db.get(Post).create({
+          title: 'Lonely',
+          body: 'No comments',
+        })) as Post;
+      });
+
+      const comments = await post!.comments.fetch();
+      expect(comments).toHaveLength(0);
     });
   });
 });
