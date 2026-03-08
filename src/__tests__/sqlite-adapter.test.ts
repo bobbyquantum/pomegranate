@@ -86,6 +86,10 @@ function createTestDriver(options?: {
   enableBatch?: boolean;
   enableBatchNoTx?: boolean;
   failMetadataQuery?: boolean;
+  failOpen?: Error;
+  failExecuteSql?: string | RegExp;
+  failQuerySql?: string | RegExp;
+  failRollback?: boolean;
 }): TestDriver {
   let db: BetterSqlite3.Database | null = null;
   const state: DriverState = {
@@ -99,10 +103,19 @@ function createTestDriver(options?: {
   const driver: TestDriver = {
     state,
     async open(name: string) {
+      if (options?.failOpen) {
+        throw options.failOpen;
+      }
       db = new BetterSqlite3(name);
     },
     async execute(sql: string, bindings: unknown[] = []) {
       state.statements.push(sql);
+      if (options?.failRollback && sql === 'ROLLBACK') {
+        throw new Error('rollback failed');
+      }
+      if (matchesFailure(sql, options?.failExecuteSql)) {
+        throw new Error(`execution failed for: ${sql}`);
+      }
       db!.prepare(sql).run(...bindings);
     },
     async query(sql: string, bindings: unknown[] = []) {
@@ -113,6 +126,9 @@ function createTestDriver(options?: {
         sql.includes('schema_version')
       ) {
         throw new Error('metadata unavailable');
+      }
+      if (matchesFailure(sql, options?.failQuerySql)) {
+        throw new Error(`query failed for: ${sql}`);
       }
       return db!.prepare(sql).all(...bindings) as Record<string, unknown>[];
     },
@@ -164,6 +180,18 @@ function createTestDriver(options?: {
   return driver;
 }
 
+function matchesFailure(sql: string, matcher?: string | RegExp): boolean {
+  if (!matcher) {
+    return false;
+  }
+
+  if (typeof matcher === 'string') {
+    return sql.includes(matcher);
+  }
+
+  return matcher.test(sql);
+}
+
 function tempDbPath(name: string): string {
   return path.join(os.tmpdir(), `pomegranate-${name}-${Date.now()}-${Math.random()}.sqlite`);
 }
@@ -173,6 +201,15 @@ describe('SQLiteAdapter', () => {
     it('throws when no driver is configured', async () => {
       const adapter = new SQLiteAdapter({ databaseName: ':memory:' });
       await expect(adapter.initialize(schema)).rejects.toThrow('No SQLite driver configured');
+    });
+
+    it('surfaces driver open errors during initialization', async () => {
+      const driver = createTestDriver({
+        failOpen: new Error('SQLITE_CORRUPT: database disk image is malformed'),
+      });
+      const adapter = new SQLiteAdapter({ databaseName: ':memory:', driver });
+
+      await expect(adapter.initialize(schema)).rejects.toThrow('SQLITE_CORRUPT');
     });
 
     it('returns zero schema version if metadata query fails', async () => {
@@ -330,6 +367,23 @@ describe('SQLiteAdapter', () => {
       await adapter.close();
     });
 
+    it('preserves the original write error when rollback also fails', async () => {
+      const driver = createTestDriver({ failRollback: true });
+      const adapter = new SQLiteAdapter({ databaseName: ':memory:', driver });
+      await adapter.initialize(schema);
+
+      await expect(
+        adapter.writeTransaction(async () => {
+          await adapter.insert('items', raw('tx-full-disk'));
+          throw new Error('SQLITE_FULL: database or disk is full');
+        }),
+      ).rejects.toThrow('SQLITE_FULL');
+
+      expect(driver.state.statements).toContain('ROLLBACK');
+
+      await adapter.close();
+    });
+
     it('allows nested write transactions without opening a second transaction', async () => {
       const driver = createTestDriver();
       const adapter = new SQLiteAdapter({ databaseName: ':memory:', driver });
@@ -402,6 +456,16 @@ describe('SQLiteAdapter', () => {
 
       await adapter.batch([{ type: 'destroyPermanently', table: 'items', id: 'f1' }]);
       expect(await adapter.findById('items', 'f1')).toBeNull();
+
+      await adapter.close();
+    });
+
+    it('propagates query failures from the underlying driver', async () => {
+      const driver = createTestDriver({ failQuerySql: 'SELECT * FROM "items" WHERE "id" = ?' });
+      const adapter = new SQLiteAdapter({ databaseName: ':memory:', driver });
+      await adapter.initialize(schema);
+
+      await expect(adapter.findById('items', 'missing')).rejects.toThrow('query failed');
 
       await adapter.close();
     });

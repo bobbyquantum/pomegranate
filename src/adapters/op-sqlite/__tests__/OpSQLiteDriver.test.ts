@@ -139,6 +139,23 @@ describe('createOpSQLiteDriver', () => {
 
       await expect(driver.open('db')).rejects.toThrow(/@op-engineering\/op-sqlite/i);
     });
+
+    it('surfaces open-time pragma failures for corrupt databases', async () => {
+      const db = mockOpSQLite(
+        makeMockDb({
+          executeSync: jest.fn((sql: string) => {
+            if (sql === 'PRAGMA journal_mode = WAL') {
+              throw new Error('SQLITE_NOTADB: file is not a database');
+            }
+            return { rows: [], rowsAffected: 0 };
+          }),
+        }),
+      );
+      const driver = createOpSQLiteDriver();
+
+      await expect(driver.open('broken-db')).rejects.toThrow('SQLITE_NOTADB');
+      expect(db.executeSync).toHaveBeenCalledWith('PRAGMA journal_mode = WAL');
+    });
   });
 
   // ─── execute() ─────────────────────────────────────────────────────────
@@ -257,6 +274,30 @@ describe('createOpSQLiteDriver', () => {
       await expect(driver.executeInTransaction(async () => {})).rejects.toThrow(
         /not open|open\(\)/i,
       );
+    });
+
+    it('preserves the original callback error when rollback also fails in sync mode', async () => {
+      const db = mockOpSQLite(
+        makeMockDb({
+          executeSync: jest.fn((sql: string) => {
+            if (sql === 'ROLLBACK') {
+              throw new Error('rollback failed');
+            }
+            return { rows: [], rowsAffected: 0 };
+          }),
+        }),
+      );
+      const driver = createOpSQLiteDriver({ preferSync: true });
+      await driver.open('db');
+
+      const original = new Error('SQLITE_FULL: database or disk is full');
+      await expect(
+        driver.executeInTransaction(async () => {
+          throw original;
+        }),
+      ).rejects.toBe(original);
+
+      expect(db.executeSync).toHaveBeenCalledWith('ROLLBACK');
     });
   });
 

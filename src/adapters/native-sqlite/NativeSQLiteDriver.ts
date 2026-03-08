@@ -140,7 +140,11 @@ export function createNativeSQLiteDriver(config?: NativeSQLiteDriverConfig): SQL
         await fn();
         db.execute('COMMIT', []);
       } catch (error) {
-        db.execute('ROLLBACK', []);
+        try {
+          db.execute('ROLLBACK', []);
+        } catch {
+          // Preserve the original write error when rollback also fails.
+        }
         throw error;
       }
     },

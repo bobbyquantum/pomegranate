@@ -97,6 +97,15 @@ describe('createNativeSQLiteDriver', () => {
       const driver = createNativeSQLiteDriver({ autoInstall: true });
       await expect(driver.open('testdb')).rejects.toThrow(/install\(\) returned false/i);
     });
+
+    it('surfaces native adapter creation failures', async () => {
+      (globalThis as any).nativePomegranateCreateAdapter = jest.fn(() => {
+        throw new Error('SQLITE_CANTOPEN: unable to open database file');
+      });
+      const driver = createNativeSQLiteDriver({ autoInstall: false });
+
+      await expect(driver.open('testdb')).rejects.toThrow('SQLITE_CANTOPEN');
+    });
   });
 
   // ─── execute() ─────────────────────────────────────────────────────────
@@ -204,6 +213,31 @@ describe('createNativeSQLiteDriver', () => {
       await expect(driver.executeInTransaction(async () => {})).rejects.toThrow(
         /not open|open\(\)/i,
       );
+    });
+
+    it('preserves the original callback error when rollback also fails', async () => {
+      const executeCalls: string[] = [];
+      installMockGlobal(
+        makeMockAdapter({
+          execute: jest.fn((sql) => {
+            executeCalls.push(sql);
+            if (sql === 'ROLLBACK') {
+              throw new Error('rollback failed');
+            }
+          }),
+        }),
+      );
+      const driver = createNativeSQLiteDriver({ autoInstall: false });
+      await driver.open('db');
+
+      const original = new Error('SQLITE_FULL: database or disk is full');
+      await expect(
+        driver.executeInTransaction(async () => {
+          throw original;
+        }),
+      ).rejects.toBe(original);
+
+      expect(executeCalls).toContain('ROLLBACK');
     });
   });
 
