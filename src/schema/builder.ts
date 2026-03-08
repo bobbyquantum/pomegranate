@@ -10,8 +10,8 @@
  *     body: m.text(),
  *     isPinned: m.boolean().default(false),
  *     createdAt: m.date('created_at').readonly(),
- *     author: m.belongsTo('users', { key: 'author_id' }),
- *     comments: m.hasMany('comments', { foreignKey: 'post_id' }),
+ *     author: m.belongsTo(() => UserSchema, { key: 'author_id' }),
+ *     comments: m.hasMany(() => CommentSchema, { foreignKey: 'post_id' }),
  *   });
  */
 
@@ -94,8 +94,8 @@ function resolveField(
     const rel: ResolvedRelation = {
       fieldName,
       kind: desc.kind,
-      relatedTable: desc.relatedTable,
       foreignKey: desc.foreignKey,
+      _relatedSchemaThunk: desc._relatedSchemaThunk,
     };
 
     // belongs_to also implies a column for the foreign key
@@ -158,20 +158,26 @@ export const m = {
   },
 
   /** Belongs-to relation (many-to-one). Adds a foreign key column. */
-  belongsTo(relatedTable: string, opts: { key: string }): BelongsToDescriptor {
+  belongsTo<S extends ModelSchema>(
+    relatedSchema: () => S,
+    opts: { key: string },
+  ): BelongsToDescriptor<S> {
     return Object.freeze({
       kind: 'belongs_to' as const,
-      relatedTable,
       foreignKey: opts.key,
+      _relatedSchemaThunk: relatedSchema,
     });
   },
 
   /** Has-many relation (one-to-many). Query-only, no stored column. */
-  hasMany(relatedTable: string, opts: { foreignKey: string }): HasManyDescriptor {
+  hasMany<S extends ModelSchema>(
+    relatedSchema: () => S,
+    opts: { foreignKey: string },
+  ): HasManyDescriptor<S> {
     return Object.freeze({
       kind: 'has_many' as const,
-      relatedTable,
       foreignKey: opts.foreignKey,
+      _relatedSchemaThunk: relatedSchema,
     });
   },
 

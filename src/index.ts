@@ -28,6 +28,9 @@ export type {
   InferCreatePatch,
   InferUpdatePatch,
   InferRecord,
+  BelongsToRelation,
+  HasManyRelation,
+  ModelInstance,
 } from './schema';
 
 // ─── Model ─────────────────────────────────────────────────────────────────
