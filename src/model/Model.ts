@@ -135,12 +135,18 @@ export class Model<S extends ModelSchema = ModelSchema> {
   /**
    * Get a typed belongs-to relation handle.
    *
-   * The return type is inferred from the schema: if the field is a
-   * BelongsToDescriptor<UserSchema>, the return is BelongsToRelation<UserSchema>.
-   *
-   * Usage in subclass:
-   *   get author() { return this.belongsTo('author'); }
-   *   // TS infers: BelongsToRelation<typeof UserSchema>
+  * The return type is inferred from the schema: if the field is a
+  * `BelongsToDescriptor<UserSchema>`, the return is `BelongsToRelation<UserSchema>`.
+  *
+  * Usage in subclass:
+  *
+  * ```ts
+  * get author() {
+  *   return this.belongsTo('author');
+  * }
+  *
+  * // TS infers: BelongsToRelation<typeof UserSchema>
+  * ```
    */
   belongsTo<K extends keyof S['fields'] & string>(
     fieldName: K,
@@ -166,12 +172,18 @@ export class Model<S extends ModelSchema = ModelSchema> {
   /**
    * Get a typed has-many relation handle.
    *
-   * The return type is inferred from the schema: if the field is a
-   * HasManyDescriptor<CommentSchema>, the return is HasManyRelation<CommentSchema>.
-   *
-   * Usage in subclass:
-   *   get comments() { return this.hasMany('comments'); }
-   *   // TS infers: HasManyRelation<typeof CommentSchema>
+  * The return type is inferred from the schema: if the field is a
+  * `HasManyDescriptor<CommentSchema>`, the return is `HasManyRelation<CommentSchema>`.
+  *
+  * Usage in subclass:
+  *
+  * ```ts
+  * get comments() {
+  *   return this.hasMany('comments');
+  * }
+  *
+  * // TS infers: HasManyRelation<typeof CommentSchema>
+  * ```
    */
   hasMany<K extends keyof S['fields'] & string>(
     fieldName: K,

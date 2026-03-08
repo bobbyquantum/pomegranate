@@ -77,6 +77,7 @@ const config = {
             items: [
               { label: 'Getting Started', to: '/docs' },
               { label: 'Installation', to: '/installation' },
+              { label: 'API Reference', to: '/api-reference' },
               { label: 'Schema & Models', to: '/schema' },
             ],
           },
