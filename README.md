@@ -9,8 +9,20 @@
 </h4>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/pomegranate-db">
+    <img src="https://img.shields.io/npm/v/pomegranate-db?label=npm&color=cb3837" alt="npm version" />
+  </a>
+  <a href="https://github.com/bobbyquantum/pomegranate/actions/workflows/ci.yml">
+    <img src="https://github.com/bobbyquantum/pomegranate/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
   <a href="https://codecov.io/gh/bobbyquantum/pomegranate">
     <img src="https://codecov.io/gh/bobbyquantum/pomegranate/graph/badge.svg" alt="Codecov" />
+  </a>
+  <a href="https://bobbyquantum.github.io/pomegranate/">
+    <img src="https://img.shields.io/badge/docs-GitHub%20Pages-1f6feb" alt="docs" />
+  </a>
+  <a href="https://github.com/bobbyquantum/pomegranate/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/bobbyquantum/pomegranate?color=7a3" alt="License" />
   </a>
 </p>
 
