@@ -181,6 +181,16 @@ describe('createOpSQLiteDriver', () => {
       expect(db.executeSync).toHaveBeenCalledWith('INSERT INTO foo VALUES (?)', [99]);
     });
 
+    it('passes empty bindings arrays in sync mode when none are provided', async () => {
+      const db = mockOpSQLite();
+      const driver = createOpSQLiteDriver({ preferSync: true });
+      await driver.open('db');
+
+      await driver.execute('DELETE FROM foo');
+
+      expect(db.executeSync).toHaveBeenCalledWith('DELETE FROM foo', []);
+    });
+
     it('throws when called before open()', async () => {
       mockOpSQLite();
       const driver = createOpSQLiteDriver();
@@ -212,6 +222,16 @@ describe('createOpSQLiteDriver', () => {
       const result = await driver.query('SELECT * FROM items WHERE id = ?', ['x']);
 
       expect(result).toEqual(rows);
+    });
+
+    it('passes empty bindings arrays to sync query when none are provided', async () => {
+      const db = mockOpSQLite();
+      const driver = createOpSQLiteDriver({ preferSync: true });
+      await driver.open('db');
+
+      await driver.query('SELECT 1');
+
+      expect(db.executeSync).toHaveBeenCalledWith('SELECT 1', []);
     });
 
     it('throws when called before open()', async () => {
@@ -328,6 +348,36 @@ describe('createOpSQLiteDriver', () => {
       await driver.close();
 
       expect(db.close).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('raw execution helpers', () => {
+    it('delegates executeBatch to the native batch API', async () => {
+      const db = mockOpSQLite();
+      const driver = createOpSQLiteDriver();
+      await driver.open('db');
+
+      await driver.executeBatch?.([
+        ['INSERT INTO foo VALUES (?)', [1]],
+        ['DELETE FROM foo WHERE id = ?', ['a']],
+      ] as any);
+
+      expect(db.executeBatch).toHaveBeenCalledWith([
+        ['INSERT INTO foo VALUES (?)', [1]],
+        ['DELETE FROM foo WHERE id = ?', ['a']],
+      ]);
+    });
+
+    it('supports executeSync and executeAsync helpers without bindings', async () => {
+      const db = mockOpSQLite();
+      const driver = createOpSQLiteDriver() as any;
+      await driver.open('db');
+
+      driver.executeSync('PRAGMA user_version');
+      await driver.executeAsync('VACUUM');
+
+      expect(db.executeSync).toHaveBeenCalledWith('PRAGMA user_version', []);
+      expect(db.execute).toHaveBeenCalledWith('VACUUM', undefined);
     });
   });
 });

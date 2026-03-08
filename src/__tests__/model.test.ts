@@ -6,7 +6,7 @@
  */
 
 import { m } from '../schema/builder';
-import { Model } from '../model/Model';
+import { createRawRecord, Model } from '../model/Model';
 import { Database } from '../database/Database';
 import { LokiAdapter } from '../adapters/loki/LokiAdapter';
 
@@ -21,6 +21,19 @@ const ArticleSchema = m.model('articles', {
   createdAt: m.date('created_at').readonly(),
 });
 
+const RichArticleSchema = m.model('rich_articles', {
+  title: m.text(),
+  related: m.belongsTo(() => ArticleSchema, { key: 'related_id' }),
+  relatedArticles: m.hasMany(() => ArticleSchema, { foreignKey: 'related_id' }),
+});
+
+const MetricsSchema = m.model('metrics', {
+  label: m.text(),
+  count: m.number(),
+  flagged: m.boolean(),
+  happenedAt: m.date(),
+});
+
 class Article extends Model<typeof ArticleSchema> {
   static schema = ArticleSchema;
 
@@ -30,12 +43,25 @@ class Article extends Model<typeof ArticleSchema> {
   });
 }
 
+class RichArticle extends Model<typeof RichArticleSchema> {
+  static schema = RichArticleSchema;
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────
 
 async function setup() {
   const db = new Database({
     adapter: new LokiAdapter({ databaseName: 'model-test' }),
     models: [Article],
+  });
+  await db.initialize();
+  return db;
+}
+
+async function setupWithRelations() {
+  const db = new Database({
+    adapter: new LokiAdapter({ databaseName: 'model-test-relations' }),
+    models: [Article, RichArticle],
   });
   await db.initialize();
   return db;
@@ -88,6 +114,46 @@ describe('Model', () => {
       });
 
       expect(article.getField('category')).toBeNull();
+    });
+
+    it('returns belongs_to foreign keys as field values', async () => {
+      const relationDb = await setupWithRelations();
+
+      try {
+        const record = await relationDb.write(async () => {
+          return (await relationDb.get(RichArticle).create({
+            title: 'Linked',
+            related: 'article-1',
+          })) as RichArticle;
+        });
+
+        expect(record.getField('related')).toBe('article-1');
+      } finally {
+        await relationDb.close();
+      }
+    });
+
+    it('throws when reading a has_many relation as a raw field', async () => {
+      const relationDb = await setupWithRelations();
+
+      try {
+        const record = await relationDb.write(async () => {
+          return (await relationDb.get(RichArticle).create({ title: 'Has many' })) as RichArticle;
+        });
+
+        expect(() => record.getField('relatedArticles')).toThrow('Unknown field');
+      } finally {
+        await relationDb.close();
+      }
+    });
+
+    it('deserializes readonly date columns to Date instances', async () => {
+      const date = new Date('2024-01-01T00:00:00.000Z');
+      const article = await db.write(async () => {
+        return db.get(Article).create({ title: 'Dated', createdAt: date });
+      });
+
+      expect(article.getField('createdAt')).toEqual(date);
     });
 
     it('throws for nonexistent fields', async () => {
@@ -153,6 +219,43 @@ describe('Model', () => {
           await article.update({ createdAt: new Date() } as any);
         }),
       ).rejects.toThrow('readonly');
+    });
+
+    it('updates belongs_to relation keys and preserves existing changed fields', async () => {
+      const relationDb = await setupWithRelations();
+
+      try {
+        const record = await relationDb.write(async () => {
+          return (await relationDb.get(RichArticle).create({
+            title: 'Relink me',
+            related: 'article-1',
+          })) as RichArticle;
+        });
+
+        record._setRaw({ _status: 'synced', _changed: 'title' } as any);
+
+        await relationDb.write(async () => {
+          await record.update({ related: 'article-2' });
+        });
+
+        expect(record.getField('related')).toBe('article-2');
+        expect(record.changedFields).toContain('title');
+        expect(record.changedFields).toContain('related_id');
+      } finally {
+        await relationDb.close();
+      }
+    });
+
+    it('rejects unknown update fields', async () => {
+      const article = await db.write(async () => {
+        return db.get(Article).create({ title: 'Test', createdAt: new Date() });
+      });
+
+      await expect(
+        db.write(async () => {
+          await article.update({ mystery: 'nope' } as any);
+        }),
+      ).rejects.toThrow('Unknown field');
     });
   });
 
@@ -365,6 +468,54 @@ describe('Model', () => {
 
       article._setRaw({ title: 'Replaced' } as any);
       expect(article.getField('title')).toBe('Replaced');
+    });
+  });
+
+  describe('relation accessors', () => {
+    it('returns null relation ids when the raw foreign key is null', async () => {
+      const relationDb = await setupWithRelations();
+
+      try {
+        const record = await relationDb.write(async () => {
+          return (await relationDb.get(RichArticle).create({ title: 'No relation' })) as RichArticle;
+        });
+
+        record._setRaw({ related_id: null } as any);
+        expect(record.belongsTo('related').id).toBeNull();
+      } finally {
+        await relationDb.close();
+      }
+    });
+
+    it('throws when requesting undeclared relations', async () => {
+      const relationDb = await setupWithRelations();
+
+      try {
+        const record = await relationDb.write(async () => {
+          return (await relationDb.get(RichArticle).create({ title: 'Invalid' })) as RichArticle;
+        });
+
+        expect(() => record.belongsTo('missing' as any)).toThrow('No belongs_to relation');
+        expect(() => record.hasMany('missing' as any)).toThrow('No has_many relation');
+      } finally {
+        await relationDb.close();
+      }
+    });
+  });
+
+  describe('createRawRecord', () => {
+    it('fills required number, boolean, and date columns with zero-values', () => {
+      const raw = createRawRecord(MetricsSchema, { label: 'stats' }, 'metric-1');
+
+      expect(raw).toMatchObject({
+        id: 'metric-1',
+        label: 'stats',
+        count: 0,
+        flagged: 0,
+        happenedAt: null,
+        _status: 'created',
+        _changed: '',
+      });
     });
   });
 });
