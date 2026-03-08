@@ -55,11 +55,12 @@ Unlike WatermelonDB which uses decorators (`@field`, `@text`, `@relation`), Pome
 // PomegranateDB — schema-first
 const PostSchema = m.model('posts', {
   title: m.text(),
-  author: m.belongsTo('users', { key: 'author_id' }),
+  author: m.belongsTo(() => UserSchema, { key: 'author_id' }),
 });
 
 class Post extends Model<typeof PostSchema> {
   static schema = PostSchema;
+  get author() { return this.belongsTo('author'); }
 }
 ```
 

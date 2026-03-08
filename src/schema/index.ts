@@ -25,4 +25,7 @@ export type {
   InferCreatePatch,
   InferUpdatePatch,
   InferRecord,
+  BelongsToRelation,
+  HasManyRelation,
+  ModelInstance,
 } from './types';
