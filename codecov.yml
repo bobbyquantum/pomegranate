@@ -1,0 +1,19 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+
+comment:
+  layout: "reach,diff,flags,files"
+  require_changes: false
+
+ignore:
+  - "coverage/**"
+  - "dist/**"
+  - "docs-website/**"
+  - "demos/**"
+  - "expo-plugin/**"
+  - "native/**"

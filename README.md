@@ -9,6 +9,12 @@
 </h4>
 
 <p align="center">
+  <a href="https://codecov.io/gh/bobbyquantum/pomegranate">
+    <img src="https://codecov.io/gh/bobbyquantum/pomegranate/graph/badge.svg" alt="Codecov" />
+  </a>
+</p>
+
+<p align="center">
   Build powerful React and React Native apps that scale from hundreds to tens of thousands of records and remain <em>fast</em> ⚡️
 </p>
 
