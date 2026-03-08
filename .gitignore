@@ -45,6 +45,7 @@ Thumbs.db
 docs-website/node_modules/
 docs-website/build/
 docs-website/.docusaurus/
+docs-website/docs/api/
 
 # Expo
 .expo/

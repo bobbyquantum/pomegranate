@@ -9,33 +9,45 @@
 
 export type ColumnType = 'text' | 'number' | 'boolean' | 'date';
 
+/** Shared metadata for any persisted column declared in a model schema. */
 export interface ColumnDescriptor {
+  /** Primitive storage type used by the adapter. */
   readonly type: ColumnType;
+  /** Explicit database column name, or `null` to reuse the field name. */
   readonly columnName: string | null; // null => use field name
+  /** Whether the field can only be written by the framework. */
   readonly isReadonly: boolean;
+  /** Whether `null` is allowed at the model level. */
   readonly isOptional: boolean;
+  /** Whether adapters should create an index for this column. */
   readonly isIndexed: boolean;
+  /** Default value applied when a record is created without this field. */
   readonly defaultValue?: unknown;
 }
 
+/** Text column descriptor. */
 export interface TextColumn extends ColumnDescriptor {
   readonly type: 'text';
 }
 
+/** Numeric column descriptor. */
 export interface NumberColumn extends ColumnDescriptor {
   readonly type: 'number';
 }
 
+/** Boolean column descriptor. */
 export interface BooleanColumn extends ColumnDescriptor {
   readonly type: 'boolean';
 }
 
+/** Date column descriptor stored as an epoch timestamp. */
 export interface DateColumn extends ColumnDescriptor {
   readonly type: 'date';
 }
 
 // ─── Relation Types ────────────────────────────────────────────────────────
 
+/** Supported relation kinds in compiled schema metadata. */
 export type RelationType = 'belongs_to' | 'has_many';
 
 /**
@@ -61,6 +73,7 @@ export interface HasManyDescriptor<S extends ModelSchema = ModelSchema> {
   readonly _relatedSchemaThunk: () => S;
 }
 
+/** Any relation descriptor accepted in a model field definition. */
 export type RelationDescriptor = BelongsToDescriptor | HasManyDescriptor;
 
 // ─── Field Descriptor (union) ──────────────────────────────────────────────
@@ -74,25 +87,41 @@ export type SchemaFields = Record<string, FieldDescriptor>;
 
 /** Compiled model schema with table name and resolved columns */
 export interface ModelSchema<F extends SchemaFields = SchemaFields> {
+  /** Backing database table name. */
   readonly table: string;
+  /** Original field map as declared by the model builder. */
   readonly fields: F;
+  /** Resolved column metadata used by adapters and serializers. */
   readonly columns: ResolvedColumn[];
+  /** Resolved relation metadata used for relation handles. */
   readonly relations: ResolvedRelation[];
 }
 
+/** Resolved, adapter-ready metadata for a declared column. */
 export interface ResolvedColumn {
+  /** Model field name used in TypeScript. */
   readonly fieldName: string;
+  /** Physical database column name. */
   readonly columnName: string;
+  /** Primitive storage type used by the adapter. */
   readonly type: ColumnType;
+  /** Whether the field can only be written by framework internals. */
   readonly isReadonly: boolean;
+  /** Whether `null` is allowed for this field. */
   readonly isOptional: boolean;
+  /** Whether adapters should create an index for this column. */
   readonly isIndexed: boolean;
+  /** Default value applied during record creation when omitted. */
   readonly defaultValue?: unknown;
 }
 
+/** Resolved, adapter-ready metadata for a declared relation. */
 export interface ResolvedRelation {
+  /** Model field name used to access the relation. */
   readonly fieldName: string;
+  /** Relation kind. */
   readonly kind: RelationType;
+  /** Foreign-key column stored on the owning side. */
   readonly foreignKey: string;
   /** @internal Lazy reference — call to get the related schema's table name */
   readonly _relatedSchemaThunk: () => ModelSchema;
@@ -100,20 +129,31 @@ export interface ResolvedRelation {
 
 // ─── Database-level Schema ─────────────────────────────────────────────────
 
+/** Top-level schema object passed into adapters during initialization. */
 export interface DatabaseSchema {
+  /** Monotonically increasing schema version. */
   readonly version: number;
+  /** All tables managed by this database. */
   readonly tables: TableSchema[];
 }
 
+/** Schema for one table in the database. */
 export interface TableSchema {
+  /** Table name. */
   readonly name: string;
+  /** Declared columns in the table. */
   readonly columns: TableColumnSchema[];
 }
 
+/** Minimal column schema used by adapter DDL creation and migrations. */
 export interface TableColumnSchema {
+  /** Physical column name. */
   readonly name: string;
+  /** Primitive storage type. */
   readonly type: ColumnType;
+  /** Whether `null` is allowed. */
   readonly isOptional: boolean;
+  /** Whether adapters should create an index. */
   readonly isIndexed: boolean;
 }
 
@@ -145,8 +185,11 @@ export interface HasManyRelation<S extends ModelSchema = ModelSchema> {
  * Full Model class satisfies this at runtime.
  */
 export interface ModelInstance<S extends ModelSchema = ModelSchema> {
+  /** Stable record identifier. */
   readonly id: string;
+  /** Read a field value from the model instance. */
   getField(fieldName: string): unknown;
+  /** Observe the model for future changes. */
   observe(): Observable<ModelInstance<S>>;
 }
 
@@ -202,16 +245,21 @@ export type InferRecord<F extends SchemaFields> = {
 
 // ─── Sync Metadata ────────────────────────────────────────────────────────
 
+/** Lifecycle state of a locally persisted row relative to sync. */
 export type SyncStatus = 'synced' | 'created' | 'updated' | 'deleted';
 
 /** Every persisted row carries sync metadata */
 export interface SyncColumns {
+  /** Current local sync status for the row. */
   readonly _status: SyncStatus;
+  /** Comma-separated list of locally changed field names. */
   readonly _changed: string; // comma-separated field names
 }
 
 /** Raw row as stored in the adapter (values are primitives) */
 export interface RawRecord extends SyncColumns {
+  /** Stable record identifier. */
   readonly id: string;
+  /** Arbitrary persisted columns by column name. */
   [column: string]: unknown;
 }

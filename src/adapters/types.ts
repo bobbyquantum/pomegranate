@@ -10,7 +10,9 @@ import type { DatabaseSchema, RawRecord, TableSchema } from '../schema/types';
 
 // ─── Adapter Configuration ────────────────────────────────────────────────
 
+/** Shared adapter construction options. */
 export interface AdapterConfig {
+  /** Physical database name or file name used by the backend. */
   readonly databaseName: string;
   /** Optional schema version override; normally derived from DatabaseSchema. */
   readonly schemaVersion?: number;
@@ -18,27 +20,40 @@ export interface AdapterConfig {
 
 // ─── Encryption Provider ──────────────────────────────────────────────────
 
+/** Adapter-agnostic encryption settings supplied by the application. */
 export interface EncryptionConfig {
+  /** Whether encryption is enabled for this database. */
   readonly enabled: boolean;
+  /** Async provider for the raw encryption key material. */
   readonly keyProvider: () => Promise<Uint8Array>;
 }
 
 // ─── Migration Types ──────────────────────────────────────────────────────
 
+/** One schema migration between two concrete versions. */
 export interface Migration {
+  /** Schema version the migration starts from. */
   readonly fromVersion: number;
+  /** Schema version after the migration completes. */
   readonly toVersion: number;
+  /** Ordered migration steps to execute. */
   readonly steps: MigrationStep[];
 }
 
+/** Atomic migration step understood by the built-in adapters. */
 export type MigrationStep =
+  /** Create a new table with the provided schema. */
   | { type: 'createTable'; schema: TableSchema }
+  /** Add a column to an existing table. */
   | { type: 'addColumn'; table: string; column: string; columnType: string; isOptional?: boolean }
+  /** Drop an existing table entirely. */
   | { type: 'destroyTable'; table: string }
+  /** Execute arbitrary SQL as part of the migration. */
   | { type: 'sql'; query: string };
 
 // ─── Core Adapter Interface ───────────────────────────────────────────────
 
+/** Backend contract implemented by every storage engine. */
 export interface StorageAdapter {
   /** Initialize the adapter. Creates tables if needed. */
   initialize(schema: DatabaseSchema): Promise<void>;
@@ -107,6 +122,9 @@ export interface StorageAdapter {
 // ─── Adapter Events ───────────────────────────────────────────────────────
 
 export type AdapterEvent =
+  /** Adapter finished initialization. */
   | { type: 'initialized' }
+  /** Adapter completed a batch mutation. */
   | { type: 'batch_completed'; operations: BatchOperation[] }
+  /** Adapter state was fully reset. */
   | { type: 'reset' };

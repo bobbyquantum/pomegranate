@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
+    "prestart": "npm --prefix .. run docs:api",
     "start": "docusaurus start",
+    "prebuild": "npm --prefix .. run docs:api",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
+    "predeploy": "npm --prefix .. run docs:api",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve"
