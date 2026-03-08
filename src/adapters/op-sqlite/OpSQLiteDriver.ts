@@ -194,7 +194,11 @@ export function createOpSQLiteDriver(config?: OpSQLiteDriverConfig): SQLiteDrive
           await fn();
           database.executeSync('COMMIT');
         } catch (error) {
-          database.executeSync('ROLLBACK');
+          try {
+            database.executeSync('ROLLBACK');
+          } catch {
+            // Preserve the original write error when rollback also fails.
+          }
           throw error;
         }
       } else {
