@@ -7,6 +7,8 @@ The API reference in this section is generated directly from the public TypeScri
 
 Use it when you want exact signatures, type definitions, and exported class or function details without reading the source by hand.
 
+These pages are generated artifacts, not hand-maintained docs. The committed source of truth is the TSDoc in `src/**/*.ts` plus the generator config in `typedoc.json`.
+
 ## What Is Included
 
 - Core schema and model APIs
@@ -24,4 +26,4 @@ Run the following from the repository root:
 npm run docs:api
 ```
 
-That command runs TypeDoc against the public entrypoint and writes Markdown files into `docs-website/docs/api/`, which are then picked up by Docusaurus automatically.
+That command runs TypeDoc against the public entrypoint and writes Markdown files into `docs-website/docs/api/`, which Docusaurus picks up automatically during docs start, build, and deploy. The generated folder is intentionally ignored in git.
