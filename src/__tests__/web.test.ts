@@ -73,6 +73,12 @@ async function createTestDb() {
   return db;
 }
 
+async function flushHookUpdates() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 function createWrapper(db: Database) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return React.createElement(DatabaseProvider, { value: db }, children);
@@ -197,15 +203,18 @@ describe('React Native Web — Hooks Test Suite', () => {
   // ─── useLiveQuery ──────────────────────────────────────────────────
 
   describe('useLiveQuery', () => {
-    it('starts in loading state', () => {
+    it('starts in loading state', async () => {
       const wrapper = createWrapper(db);
       const collection = db.collection('todos');
 
-      const { result } = renderHook(() => useLiveQuery(collection as any), { wrapper });
+      const { result, unmount } = renderHook(() => useLiveQuery(collection as any), { wrapper });
 
       // Initial render might be loading
       expect(result.current.results).toBeDefined();
       expect(Array.isArray(result.current.results)).toBe(true);
+
+      await flushHookUpdates();
+      unmount();
     });
 
     it('returns all records when no query builder is provided', async () => {
@@ -219,6 +228,8 @@ describe('React Native Web — Hooks Test Suite', () => {
       });
 
       const { result } = renderHook(() => useLiveQuery(collection as any), { wrapper });
+
+      await flushHookUpdates();
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -242,6 +253,8 @@ describe('React Native Web — Hooks Test Suite', () => {
         { wrapper },
       );
 
+      await flushHookUpdates();
+
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
       });
@@ -254,6 +267,8 @@ describe('React Native Web — Hooks Test Suite', () => {
       const collection = db.collection('todos');
 
       const { result } = renderHook(() => useLiveQuery(collection as any), { wrapper });
+
+      await flushHookUpdates();
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);

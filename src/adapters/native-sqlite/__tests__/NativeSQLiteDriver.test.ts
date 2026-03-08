@@ -98,6 +98,15 @@ describe('createNativeSQLiteDriver', () => {
       await expect(driver.open('testdb')).rejects.toThrow(/install\(\) returned false/i);
     });
 
+    it('throws when install succeeds but the global factory is still missing', async () => {
+      jest.mock('react-native', () => ({
+        NativeModules: { PomegranateJSIBridge: { install: jest.fn().mockReturnValue(true) } },
+      }));
+
+      const driver = createNativeSQLiteDriver({ autoInstall: true });
+      await expect(driver.open('testdb')).rejects.toThrow(/native build issue/i);
+    });
+
     it('surfaces native adapter creation failures', async () => {
       (globalThis as any).nativePomegranateCreateAdapter = jest.fn(() => {
         throw new Error('SQLITE_CANTOPEN: unable to open database file');
@@ -268,6 +277,36 @@ describe('createNativeSQLiteDriver', () => {
       await driver.close(); // second close should be silent
 
       expect(mock.close).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('raw execution helpers', () => {
+    it('delegates executeBatch to the JSI adapter with serialized commands', async () => {
+      const mock = installMockGlobal();
+      const driver = createNativeSQLiteDriver({ autoInstall: false });
+      await driver.open('db');
+
+      await driver.executeBatch?.([
+        ['INSERT INTO foo VALUES (?)', [1]],
+        ['DELETE FROM foo WHERE id = ?', ['a']],
+      ] as any);
+
+      expect(mock.executeBatch).toHaveBeenCalledWith([
+        { sql: 'INSERT INTO foo VALUES (?)', args: [1] },
+        { sql: 'DELETE FROM foo WHERE id = ?', args: ['a'] },
+      ]);
+    });
+
+    it('supports executeSync and executeAsync without bindings', async () => {
+      const mock = installMockGlobal();
+      const driver = createNativeSQLiteDriver({ autoInstall: false }) as any;
+      await driver.open('db');
+
+      driver.executeSync('PRAGMA user_version');
+      await driver.executeAsync('VACUUM');
+
+      expect(mock.execute).toHaveBeenNthCalledWith(1, 'PRAGMA user_version', []);
+      expect(mock.execute).toHaveBeenNthCalledWith(2, 'VACUUM', []);
     });
   });
 });

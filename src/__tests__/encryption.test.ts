@@ -3,7 +3,17 @@
  */
 
 import { EncryptionManager } from '../encryption';
-import { nodeCryptoProvider } from '../encryption/node';
+import { EncryptingAdapter, webCryptoProvider } from '../encryption';
+import {
+  EncryptingAdapter as NodeEncryptingAdapter,
+  EncryptionManager as NodeEncryptionManager,
+  nodeCryptoProvider,
+} from '../encryption/node';
+import {
+  EncryptingAdapter as ReactNativeEncryptingAdapter,
+  EncryptionManager as ReactNativeEncryptionManager,
+  reactNativeCryptoProvider,
+} from '../encryption/react-native';
 
 describe('EncryptionManager', () => {
   // Generate a test key (32 bytes for AES-256)
@@ -49,5 +59,19 @@ describe('EncryptionManager', () => {
     const encrypted = await manager.encrypt(plaintext);
     const decrypted = await manager.decrypt(encrypted);
     expect(decrypted).toBe(plaintext);
+  });
+
+  it('requires an auth tag for direct node provider decryption', () => {
+    expect(() =>
+      nodeCryptoProvider.decrypt(testKey, new Uint8Array(12), new Uint8Array([1, 2, 3])),
+    ).toThrow('AES-GCM auth tag is required');
+  });
+
+  it('re-exports the shared encryption entry points for platform-specific imports', () => {
+    expect(NodeEncryptionManager).toBe(EncryptionManager);
+    expect(NodeEncryptingAdapter).toBe(EncryptingAdapter);
+    expect(ReactNativeEncryptionManager).toBe(EncryptionManager);
+    expect(ReactNativeEncryptingAdapter).toBe(EncryptingAdapter);
+    expect(reactNativeCryptoProvider).toBe(webCryptoProvider);
   });
 });
