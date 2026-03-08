@@ -8,7 +8,7 @@ slug: /contributing
 
 Thank you for your interest in contributing to PomegranateDB!
 
-## Development Setup
+## Development setup
 
 ```bash
 git clone https://github.com/bobbyquantum/pomegranate.git
@@ -16,22 +16,41 @@ cd pomegranate
 npm install
 ```
 
-## Running Tests
+## Core commands
 
 ```bash
-# All tests
+# Build the library
+npm run build
+
+# Type-check + lint
+npm run check
+
+# Jest test suite
+npm test
+
+# Build the docs site
+npm run docs:build
+```
+
+Use focused checks while iterating, then run the broader command set that matches the files you changed.
+
+## Running tests
+
+```bash
+# All Jest tests
 npm test
 
 # Watch mode
 npm run test:watch
 
-# Specific test file
-npx jest src/query/__tests__/QueryBuilder.test.ts
+# Target a specific file or pattern
+npx jest src/__tests__/integration.test.ts
+npx jest --testPathPattern='web\\.test'
 ```
 
-We currently have **401 tests across 20 suites** covering schema, models, queries, CRUD, sync, hooks, encryption, adapters, and more.
+The repository includes unit tests, integration tests, React hook coverage, web-focused tests, and native validation flows. Avoid hard-coding test counts in docs or PRs because they change frequently.
 
-## Project Structure
+## Project structure
 
 ```
 src/
@@ -57,9 +76,9 @@ native/
 docs-website/         # This documentation site (Docusaurus)
 ```
 
-## Android Development
+## Native development
 
-Requirements: JDK 21, Android SDK 36, NDK 27.1.12297006
+Android requirements currently include JDK 21, Android SDK 36, and NDK 27.1.12297006.
 
 ```bash
 # Build the Android test app
@@ -70,18 +89,38 @@ cd native/androidTest
 npm run test:android
 ```
 
-## Code Style
+There is also an Expo-native validation path:
+
+```bash
+npm run test:android:expo
+```
+
+If your change touches iOS, Android, Expo, packaging, or native SQLite code, call that out in the PR and run the narrowest realistic local validation you can.
+
+## Documentation changes
+
+If you change public APIs, adapter behavior, installation requirements, or workflow guidance:
+
+- update the matching page under `docs-website/docs/`
+- rebuild the docs site with `npm run docs:build`
+- prefer examples that use public APIs only
+
+## Code style
 
 - TypeScript strict mode
 - No decorators or Babel transforms
 - Prefer explicit types over `any`
 - Pure functions where possible
-- All public APIs should have JSDoc comments
+- Keep docs and code examples aligned with the shipped package exports
+- Add or update JSDoc on public APIs when behavior changes
 
-## Pull Requests
+## Pull request checklist
 
 1. Fork the repo and create a branch from `main`
 2. Add tests for any new functionality
-3. Ensure all tests pass: `npm test`
-4. Ensure TypeScript checks pass: `npm run lint`
-5. Submit a PR with a clear description
+3. Run the focused local checks that cover your change
+4. Run broader validation when the change touches shared surfaces
+5. Update docs when the public behavior changes
+6. Submit a PR with a clear description, tradeoffs, and any follow-up work
+
+Strong pull requests in this repo tend to be small, well-scoped, and backed by concrete validation results. If something could not be tested locally, say so explicitly in the PR body.
