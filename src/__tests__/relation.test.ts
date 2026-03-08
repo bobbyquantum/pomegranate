@@ -84,7 +84,8 @@ describe('Model relations', () => {
 
     expect(post.getField('author')).toBe(author.id);
     expect(post.authorRelation.id).toBe(author.id);
-    expect((await post.authorRelation.fetch())?.id).toBe(author.id);
+    const initialAuthor = await post.authorRelation.fetch();
+    expect(initialAuthor?.id).toBe(author.id);
 
     const observedAuthors: Array<User | null> = [];
     const unsub = post.authorRelation.observe().subscribe((value) => {
@@ -106,7 +107,8 @@ describe('Model relations', () => {
     });
 
     expect(post.getField('author')).toBe(replacementAuthor.id);
-    expect((await post.authorRelation.fetch())?.id).toBe(replacementAuthor.id);
+    const replacement = await post.authorRelation.fetch();
+    expect(replacement?.id).toBe(replacementAuthor.id);
 
     unsub();
   });
