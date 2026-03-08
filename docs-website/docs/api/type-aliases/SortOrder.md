@@ -7,3 +7,5 @@
 # Type Alias: SortOrder
 
 > **SortOrder** = `"asc"` \| `"desc"`
+
+Supported sort directions for ORDER BY clauses.

@@ -16,11 +16,15 @@ Raw row as stored in the adapter (values are primitives)
 
 \[`column`: `string`\]: `unknown`
 
+Arbitrary persisted columns by column name.
+
 ## Properties
 
 ### \_changed
 
 > `readonly` **\_changed**: `string`
+
+Comma-separated list of locally changed field names.
 
 #### Inherited from
 
@@ -32,6 +36,8 @@ Raw row as stored in the adapter (values are primitives)
 
 > `readonly` **\_status**: [`SyncStatus`](../type-aliases/SyncStatus.md)
 
+Current local sync status for the row.
+
 #### Inherited from
 
 `SyncColumns._status`
@@ -41,3 +47,5 @@ Raw row as stored in the adapter (values are primitives)
 ### id
 
 > `readonly` **id**: `string`
+
+Stable record identifier.

@@ -6,6 +6,8 @@
 
 # Interface: SyncConfig
 
+Runtime callbacks and options needed to perform a sync cycle.
+
 ## Properties
 
 ### onConflict()?
@@ -31,6 +33,8 @@ Optional: called when sync encounters a conflict
 
 > **pullChanges**: (`params`) => `Promise`\<[`SyncPullResult`](SyncPullResult.md)\>
 
+Pull remote changes newer than the provided checkpoint.
+
 #### Parameters
 
 | Parameter | Type |
@@ -47,6 +51,8 @@ Optional: called when sync encounters a conflict
 ### pushChanges()
 
 > **pushChanges**: (`params`) => `Promise`\<`void`\>
+
+Push local changes to the remote backend.
 
 #### Parameters
 

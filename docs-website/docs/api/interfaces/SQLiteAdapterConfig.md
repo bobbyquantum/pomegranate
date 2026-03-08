@@ -16,6 +16,8 @@
 
 > `readonly` **databaseName**: `string`
 
+Physical database name or file name used by the backend.
+
 #### Inherited from
 
 `AdapterConfig.databaseName`

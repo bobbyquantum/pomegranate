@@ -6,6 +6,8 @@
 
 # Class: LokiAdapter
 
+Backend contract implemented by every storage engine.
+
 ## Implements
 
 - [`StorageAdapter`](../interfaces/StorageAdapter.md)

@@ -6,6 +6,8 @@
 
 # Interface: StorageAdapter
 
+Backend contract implemented by every storage engine.
+
 ## Methods
 
 ### applyRemoteChanges()

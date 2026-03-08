@@ -6,6 +6,8 @@
 
 # Interface: TextColumn
 
+Text column descriptor.
+
 ## Extends
 
 - [`ColumnDescriptor`](ColumnDescriptor.md)
@@ -15,6 +17,8 @@
 ### columnName
 
 > `readonly` **columnName**: `string` \| `null`
+
+Explicit database column name, or `null` to reuse the field name.
 
 #### Inherited from
 
@@ -26,6 +30,8 @@
 
 > `readonly` `optional` **defaultValue**: `unknown`
 
+Default value applied when a record is created without this field.
+
 #### Inherited from
 
 [`ColumnDescriptor`](ColumnDescriptor.md).[`defaultValue`](ColumnDescriptor.md#defaultvalue)
@@ -35,6 +41,8 @@
 ### isIndexed
 
 > `readonly` **isIndexed**: `boolean`
+
+Whether adapters should create an index for this column.
 
 #### Inherited from
 
@@ -46,6 +54,8 @@
 
 > `readonly` **isOptional**: `boolean`
 
+Whether `null` is allowed at the model level.
+
 #### Inherited from
 
 [`ColumnDescriptor`](ColumnDescriptor.md).[`isOptional`](ColumnDescriptor.md#isoptional)
@@ -56,6 +66,8 @@
 
 > `readonly` **isReadonly**: `boolean`
 
+Whether the field can only be written by the framework.
+
 #### Inherited from
 
 [`ColumnDescriptor`](ColumnDescriptor.md).[`isReadonly`](ColumnDescriptor.md#isreadonly)
@@ -65,6 +77,8 @@
 ### type
 
 > `readonly` **type**: `"text"`
+
+Primitive storage type used by the adapter.
 
 #### Overrides
 

@@ -22,11 +22,15 @@ Full Model class satisfies this at runtime.
 
 > `readonly` **id**: `string`
 
+Stable record identifier.
+
 ## Methods
 
 ### getField()
 
 > **getField**(`fieldName`): `unknown`
+
+Read a field value from the model instance.
 
 #### Parameters
 
@@ -43,6 +47,8 @@ Full Model class satisfies this at runtime.
 ### observe()
 
 > **observe**(): [`Observable`](Observable.md)\<`ModelInstance`\<`S`\>\>
+
+Observe the model for future changes.
 
 #### Returns
 

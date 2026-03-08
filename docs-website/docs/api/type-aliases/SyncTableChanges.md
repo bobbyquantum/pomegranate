@@ -8,4 +8,4 @@
 
 > **SyncTableChanges** = `Record`\<`string`, [`SyncTableChangeSet`](../interfaces/SyncTableChangeSet.md)\>
 
-Changes for all tables
+Changes for all tables keyed by table name.

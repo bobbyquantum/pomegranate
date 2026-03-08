@@ -7,3 +7,5 @@
 # Type Alias: SyncState
 
 > **SyncState** = `"idle"` \| `"pulling"` \| `"pushing"` \| `"applying"` \| `"complete"` \| `"error"`
+
+High-level lifecycle states emitted during a sync run.
