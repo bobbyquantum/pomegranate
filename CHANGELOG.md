@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/bobbyquantum/pomegranate/compare/v1.0.0...v1.1.0) (2026-03-08)
+
+
+### Features
+
+* typed relations with thunk-based schema references ([#20](https://github.com/bobbyquantum/pomegranate/issues/20)) ([44f9957](https://github.com/bobbyquantum/pomegranate/commit/44f99575a92d0cb7db63c77bf2425120624e0486))
+
 ## [1.0.0](https://github.com/bobbyquantum/pomegranate/compare/v0.1.1...v1.0.0) (2026-03-07)
 
 
