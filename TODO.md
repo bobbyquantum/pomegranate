@@ -28,7 +28,7 @@ A running list of outstanding work, grouped by area.
 ## Sync
 
 - [x] **SyncState / SyncLog observables** — `Database` now exposes `syncState$` / `syncLog$` plus `observeSyncState()` / `observeSyncLog()` with lifecycle updates for success and failure
-- [ ] End-to-end sync integration test against a mock server
+- [x] End-to-end sync integration test against a mock server — covered by `src/__tests__/sync-e2e.test.ts`
 - [x] Conflict resolution documentation
 
 ## Hooks
