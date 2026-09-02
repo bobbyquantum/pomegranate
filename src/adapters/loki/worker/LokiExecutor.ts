@@ -15,6 +15,8 @@ import type {
   ComparisonOperator,
 } from '../../../query/types';
 import type { DatabaseSchema, RawRecord } from '../../../schema/types';
+import type { TurboSyncResult, TurboSyncSource } from '../../../sync/types';
+import { applySyncJsonInJs } from '../../applySyncJsonFallback';
 
 // ─── Loki Types ───────────────────────────────────────────────────────────
 
@@ -446,6 +448,32 @@ export class LokiExecutor {
 
   async getSchemaVersion(): Promise<number> {
     return this._schemaVersion;
+  }
+
+  // ─── Metadata ───────────────────────────────────────────────────────
+
+  async getMetadata(key: string): Promise<string | null> {
+    const doc = this._getMetadataCollection().findOne({ key } as any) as { value?: unknown } | null;
+    return doc && doc.value != null ? String(doc.value) : null;
+  }
+
+  async setMetadata(key: string, value: string): Promise<void> {
+    const metaCollection = this._getMetadataCollection();
+    const existing = metaCollection.findOne({ key } as any);
+    if (existing) {
+      (existing as any).value = value;
+      metaCollection.update(existing);
+    } else {
+      metaCollection.insert({ key, value } as any);
+    }
+    await this._save();
+  }
+
+  // ─── Turbo sync ─────────────────────────────────────────────────────
+
+  /** Loki has no native importer; parse in JS and reuse applyRemoteChanges. */
+  async applySyncJson(source: TurboSyncSource, schema: DatabaseSchema): Promise<TurboSyncResult> {
+    return applySyncJsonInJs(this, source, schema);
   }
 
   // ─── Migration ──────────────────────────────────────────────────────

@@ -9,6 +9,10 @@
  *
  * This follows a "push-first" strategy to minimize conflicts:
  * the server sees our changes before we pull theirs.
+ *
+ * Turbo mode (`unsafeTurbo: true`) is a separate first-sync path: the pull
+ * payload is handed to the adapter whole (`applySyncJson`) and, on a native
+ * SQLite driver, parsed and written in C++ without JS ever seeing the rows.
  */
 
 import type { Database } from '../database/Database';
@@ -20,6 +24,7 @@ import type {
   SyncState,
   SyncTableChangeSet,
   SyncTableChanges,
+  TurboSyncSource,
 } from './types';
 import { logger } from '../utils';
 
@@ -32,10 +37,19 @@ interface SyncLifecycleObserver {
 
 const LAST_PULLED_AT_KEY = 'pomegranate_last_pulled_at';
 
-async function getLastPulledAt(db: Database): Promise<number | null> {
+/**
+ * Adapters expose a key/value metadata store for this. The legacy fallback
+ * below (a fake record in `__pomegranate_metadata`) only ever worked on Loki;
+ * it is kept for third-party adapters that predate `getMetadata`.
+ */
+export async function getLastPulledAt(db: Database): Promise<number | null> {
+  const adapter = db._adapter;
+  if (adapter.getMetadata) {
+    const value = await adapter.getMetadata(LAST_PULLED_AT_KEY);
+    return value === null ? null : Number(value) || null;
+  }
   try {
-    // Store in adapter metadata if available, else use in-memory
-    const raw = await db._adapter.findById('__pomegranate_metadata', LAST_PULLED_AT_KEY);
+    const raw = await adapter.findById('__pomegranate_metadata', LAST_PULLED_AT_KEY);
     if (raw) return Number(raw.value) || null;
   } catch {
     // metadata table might not have this record
@@ -43,9 +57,14 @@ async function getLastPulledAt(db: Database): Promise<number | null> {
   return null;
 }
 
-async function setLastPulledAt(db: Database, timestamp: number): Promise<void> {
+export async function setLastPulledAt(db: Database, timestamp: number): Promise<void> {
+  const adapter = db._adapter;
+  if (adapter.setMetadata) {
+    await adapter.setMetadata(LAST_PULLED_AT_KEY, String(timestamp));
+    return;
+  }
   try {
-    await db._adapter.batch([
+    await adapter.batch([
       {
         type: 'create',
         table: '__pomegranate_metadata',
@@ -55,7 +74,7 @@ async function setLastPulledAt(db: Database, timestamp: number): Promise<void> {
   } catch {
     // If record exists, update it
     try {
-      await db._adapter.update('__pomegranate_metadata', {
+      await adapter.update('__pomegranate_metadata', {
         id: LAST_PULLED_AT_KEY,
         key: LAST_PULLED_AT_KEY,
         value: String(timestamp),
@@ -66,6 +85,16 @@ async function setLastPulledAt(db: Database, timestamp: number): Promise<void> {
       logger.warn('Could not persist lastPulledAt timestamp');
     }
   }
+}
+
+function isTurboSource(value: SyncPullResult | TurboSyncSource): value is TurboSyncSource {
+  return 'syncJsonId' in value || 'syncJson' in value;
+}
+
+function hasAnyChanges(changes: SyncTableChanges): boolean {
+  return Object.values(changes).some(
+    (tc) => tc.created.length > 0 || tc.updated.length > 0 || tc.deleted.length > 0,
+  );
 }
 
 // ─── Sync Implementation ────────────────────────────────────────────────
@@ -96,12 +125,15 @@ export async function performSync(
 
   logger.debug(`Sync starting. lastPulledAt: ${lastPulledAt}`);
 
+  if (config.unsafeTurbo) {
+    await performTurboSync(db, config, tables, lastPulledAt, log, setState);
+    return;
+  }
+
   try {
     // ── Step 1: Get local changes ──
     const localChanges = await db._adapter.getLocalChanges(tables);
-    const hasLocalChanges = Object.values(localChanges).some(
-      (tc) => tc.created.length > 0 || tc.updated.length > 0 || tc.deleted.length > 0,
-    );
+    const hasLocalChanges = hasAnyChanges(localChanges);
 
     // Track which records were locally modified (needed for conflict detection after push)
     const locallyModifiedIds = new Set<string>();
@@ -168,15 +200,14 @@ export async function performSync(
     // ── Step 3: Pull remote changes ──
     setState('pulling');
     logger.debug('Pulling remote changes...');
-    const pullResult: SyncPullResult = await config.pullChanges({ lastPulledAt });
+    const pulled = await config.pullChanges({ lastPulledAt, schemaVersion: db.schemaVersion });
+    const pullResult: SyncPullResult = isTurboSource(pulled) ? parseTurboSource(pulled) : pulled;
     log.pullTimestamp = pullResult.timestamp;
     publishLog();
 
     // ── Step 4: Apply remote changes ──
     const remoteChanges = pullResult.changes;
-    const hasRemoteChanges = Object.values(remoteChanges).some(
-      (tc) => tc.created.length > 0 || tc.updated.length > 0 || tc.deleted.length > 0,
-    );
+    const hasRemoteChanges = hasAnyChanges(remoteChanges);
 
     if (hasRemoteChanges) {
       setState('applying');
@@ -194,16 +225,7 @@ export async function performSync(
       }
 
       await db._adapter.applyRemoteChanges(remoteChanges);
-
-      // Clear caches for affected collections
-      for (const table of Object.keys(remoteChanges)) {
-        try {
-          const collection = db.collection(table);
-          collection._clearCache();
-        } catch {
-          // Table might not have a registered collection
-        }
-      }
+      clearCaches(db, Object.keys(remoteChanges));
 
       logger.debug('Remote changes applied.');
     }
@@ -219,6 +241,107 @@ export async function performSync(
     log.error = error instanceof Error ? error.message : String(error);
     setState('error');
     throw error;
+  }
+}
+
+// ─── Turbo Sync ─────────────────────────────────────────────────────────
+
+/**
+ * First-sync fast path. The server payload is handed to the adapter as a
+ * whole; on `pomegranate-db/native-sqlite` it is parsed and written in C++.
+ *
+ * Preconditions (both enforced): this database has never pulled, and it has
+ * no unsynced local changes. Turbo replaces local state rather than merging,
+ * so running it against existing data would silently lose edits.
+ */
+async function performTurboSync(
+  db: Database,
+  config: SyncConfig,
+  tables: string[],
+  lastPulledAt: number | null,
+  log: SyncLog,
+  setState: (state: SyncState) => void,
+): Promise<void> {
+  try {
+    if (lastPulledAt !== null) {
+      throw new Error(
+        'unsafeTurbo can only be used for the first sync of a database (lastPulledAt is already set). ' +
+          'Call db.reset() first, or run a regular sync.',
+      );
+    }
+    const localChanges = await db._adapter.getLocalChanges(tables);
+    if (hasAnyChanges(localChanges)) {
+      throw new Error(
+        'unsafeTurbo cannot run while there are unsynced local changes — they would be lost. ' +
+          'Run a regular sync first.',
+      );
+    }
+
+    setState('pulling');
+    logger.debug('Turbo sync: pulling payload...');
+    const pulled = await config.pullChanges({ lastPulledAt: null, schemaVersion: db.schemaVersion });
+
+    setState('applying');
+    let timestamp: number;
+    if (isTurboSource(pulled)) {
+      const adapter = db._adapter;
+      if (!adapter.applySyncJson) {
+        throw new Error('This adapter does not support turbo sync (applySyncJson is not implemented).');
+      }
+      const result = await adapter.applySyncJson(pulled, db.schema);
+      log.turbo = result;
+      if (result.skippedTables > 0 || result.skippedColumns > 0) {
+        logger.warn(
+          `Turbo sync ignored ${result.skippedTables} unknown table(s) and dropped ` +
+            `${result.skippedColumns} unknown column(s).`,
+        );
+      }
+      if (result.timestamp === null) {
+        throw new Error('Turbo sync payload has no "timestamp" field.');
+      }
+      timestamp = result.timestamp;
+      logger.debug(
+        `Turbo sync: imported ${result.inserted} row(s) into ${result.tables} table(s), deleted ${result.deleted}.`,
+      );
+    } else {
+      // The server returned parsed changes after all — apply them the normal way.
+      await db._adapter.applyRemoteChanges(pulled.changes);
+      timestamp = pulled.timestamp;
+    }
+
+    db._clearAllCaches();
+    log.pullTimestamp = timestamp;
+    await setLastPulledAt(db, timestamp);
+
+    log.finishedAt = Date.now();
+    setState('complete');
+    logger.debug(`Turbo sync complete. New lastPulledAt: ${timestamp}`);
+  } catch (error) {
+    log.finishedAt = Date.now();
+    log.error = error instanceof Error ? error.message : String(error);
+    setState('error');
+    throw error;
+  }
+}
+
+/** A regular sync received a turbo payload: parse JSON text, refuse native ids. */
+function parseTurboSource(source: TurboSyncSource): SyncPullResult {
+  if ('syncJson' in source) {
+    return JSON.parse(source.syncJson) as SyncPullResult;
+  }
+  throw new Error(
+    'pullChanges returned { syncJsonId } but unsafeTurbo is not enabled. ' +
+      'Natively provided payloads can only be imported with `unsafeTurbo: true` on the first sync.',
+  );
+}
+
+function clearCaches(db: Database, tables: string[]): void {
+  for (const table of tables) {
+    try {
+      db.collection(table)._clearCache();
+    } catch {
+      // Table might not have a registered collection
+    }
   }
 }
 

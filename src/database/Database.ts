@@ -316,9 +316,7 @@ export class Database implements ModelDatabaseRef {
    */
   async reset(): Promise<void> {
     await this._adapter.reset();
-    for (const collection of this._collections.values()) {
-      collection._clearCache();
-    }
+    this._clearAllCaches();
     this._events$.next({ type: 'reset' });
   }
 
@@ -363,5 +361,22 @@ export class Database implements ModelDatabaseRef {
    */
   get tables(): string[] {
     return Array.from(this._collections.keys());
+  }
+
+  /** The schema version this database was configured with. */
+  get schemaVersion(): number {
+    return this._schemaVersion;
+  }
+
+  /** The compiled adapter-level schema (tables and columns) for this database. */
+  get schema(): DatabaseSchema {
+    return this._buildDatabaseSchema();
+  }
+
+  /** @internal Drop every collection's record cache (after a bulk import). */
+  _clearAllCaches(): void {
+    for (const collection of this._collections.values()) {
+      collection._clearCache();
+    }
   }
 }

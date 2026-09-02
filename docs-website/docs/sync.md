@@ -35,11 +35,11 @@ await performSync(db, {
     });
   },
 
-  pullChanges: async ({ lastPulledAt }) => {
+  pullChanges: async ({ lastPulledAt, schemaVersion }) => {
     const response = await fetch('/api/sync/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lastPulledAt }),
+      body: JSON.stringify({ lastPulledAt, schemaVersion }),
     });
 
     return response.json();
@@ -156,6 +156,74 @@ interface SyncPushPayload {
 ```
 
 This lets the server validate whether the client is pushing changes against an old snapshot and decide how strict it wants to be.
+
+## Turbo Sync (first sync, native import)
+
+A fresh install of a large app can have to pull tens of megabytes of reference data before it is usable. Going through `JSON.parse` and one adapter call per row makes the JS thread the bottleneck, and on Hermes that shows up as a frozen splash screen.
+
+Turbo sync hands the whole payload to the adapter instead. On `pomegranate-db/native-sqlite` the payload is parsed in C++ with [simdjson](https://simdjson.org) and written into SQLite inside one transaction — the JS runtime never sees a single record.
+
+```ts
+import { performSync } from 'pomegranate-db';
+
+await performSync(db, {
+  unsafeTurbo: true,
+  pullChanges: async ({ schemaVersion }) => {
+    const response = await fetch(`/api/sync/bundle?schema_version=${schemaVersion}`);
+    // The payload is the normal pull response, just kept as text.
+    return { syncJson: await response.text() };
+  },
+  pushChanges: async () => {},
+});
+```
+
+### Skipping JS entirely
+
+For the fastest path, download and decompress the bundle in a native module and hand the bytes to PomegranateDB directly. Then `pullChanges` only returns the id you chose:
+
+```swift
+// iOS — Swift, via the app's bridging header
+// #import <PomegranateDB/PomegranateSyncJson.h>
+var error: NSError?
+pomegranateProvideSyncJson(syncJsonId, jsonData, &error)
+```
+
+```kotlin
+// Android — Kotlin
+import com.pomegranate.jsi.PomegranateSyncJson
+PomegranateSyncJson.provide(syncJsonId, jsonBytes)
+```
+
+```ts
+await performSync(db, {
+  unsafeTurbo: true,
+  pullChanges: async () => ({ syncJsonId }),
+  pushChanges: async () => {},
+});
+```
+
+From JS the same store is reachable with `provideSyncJson(id, text)` from `pomegranate-db/native-sqlite`, which is handy in tests.
+
+### Rules
+
+- **First sync only.** Turbo replaces local state, it does not merge. `performSync` throws if `lastPulledAt` is already set or if there are unsynced local changes. Call `db.reset()` before re-running it.
+- **`pushChanges` is not called.**
+- **Same payload shape** as a regular pull: `{ changes: { table: { created, updated, deleted } }, timestamp }`. `created` and `updated` are both written with `INSERT OR REPLACE`; `deleted` ids are removed.
+- **Schema filtering.** Tables the database does not know are ignored and columns the schema does not declare are dropped. Both are counted in `SyncLog.turbo` (`skippedTables`, `skippedColumns`) and logged as a warning.
+- **Nested values** (objects/arrays in a column) are stored as their JSON text.
+- **Other adapters** (`LokiAdapter`, expo-sqlite, op-sqlite) accept `{ syncJson }` and fall back to `JSON.parse` + `applyRemoteChanges`, so the same app code works everywhere; only `{ syncJsonId }` needs the native driver.
+
+The import statistics are available on the sync log:
+
+```ts
+db.syncLog$.subscribe((log) => {
+  if (log?.turbo) console.log(`imported ${log.turbo.inserted} rows into ${log.turbo.tables} tables`);
+});
+```
+
+### Benchmark
+
+`npm run bench:turbo` builds a host binary (`native/bench/turbo_bench`) that imports a payload into SQLite with the same C++ used on device, and `native/bench/gen-bundle.mjs` generates a synthetic payload shaped like any WatermelonDB-style `schema.ts`. On an Apple Silicon Mac, a 97-table, 150,000-row, 53 MB payload imports in about 0.7 s; the current JS adapter path takes about 1.7 s in Node, and Hermes is considerably slower than V8 at both parsing and per-call overhead.
 
 ## Conflict Resolution
 

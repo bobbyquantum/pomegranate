@@ -13,6 +13,8 @@
 import type { StorageAdapter, AdapterConfig, EncryptionConfig, Migration } from '../types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../../query/types';
 import type { DatabaseSchema, RawRecord } from '../../schema/types';
+import type { TurboSyncResult, TurboSyncSource } from '../../sync/types';
+import { applySyncJsonInJs, tableColumnsFromSchema } from '../applySyncJsonFallback';
 import {
   createTableSQL,
   selectSQL,
@@ -74,6 +76,16 @@ export interface SQLiteDriver {
    * calls (still fast for sync drivers, but slow for async-only drivers).
    */
   executeBatchNoTx?(commands: Array<[string, unknown[]]>): Promise<void>;
+
+  /**
+   * Optional: turbo sync — parse and import a whole pull payload natively.
+   *
+   * `tableColumns` is { table: [column, …] }; the driver must ignore tables
+   * and drop columns that are not listed. Rows are written with
+   * INSERT OR REPLACE as `_status = 'synced'`, deletions with DELETE, all in
+   * one transaction. Provided by `pomegranate-db/native-sqlite`.
+   */
+  applySyncJson?(source: TurboSyncSource, tableColumns: Record<string, string[]>): Promise<TurboSyncResult>;
 }
 
 // ─── SQLite Adapter Config ────────────────────────────────────────────────
@@ -396,6 +408,32 @@ export class SQLiteAdapter implements StorageAdapter {
     } catch {
       return 0;
     }
+  }
+
+  // ─── Metadata ───────────────────────────────────────────────────────
+
+  async getMetadata(key: string): Promise<string | null> {
+    const rows = await this._driver.query(
+      'SELECT "value" FROM "__pomegranate_metadata" WHERE "key" = ?',
+      [key],
+    );
+    return rows.length > 0 && rows[0].value != null ? String(rows[0].value) : null;
+  }
+
+  async setMetadata(key: string, value: string): Promise<void> {
+    await this._driver.execute(
+      'INSERT OR REPLACE INTO "__pomegranate_metadata" ("key", "value") VALUES (?, ?)',
+      [key, value],
+    );
+  }
+
+  // ─── Turbo sync ─────────────────────────────────────────────────────
+
+  async applySyncJson(source: TurboSyncSource, schema: DatabaseSchema): Promise<TurboSyncResult> {
+    if (this._driver.applySyncJson) {
+      return this._driver.applySyncJson(source, tableColumnsFromSchema(schema));
+    }
+    return applySyncJsonInJs(this, source, schema);
   }
 
   // ─── Migration ──────────────────────────────────────────────────────

@@ -101,6 +101,20 @@ jobs:
           chmod +x scripts/setup-sqlite
           ./scripts/setup-sqlite
 
+      # simdjson single-header (turbo sync importer), same treatment.
+      - name: Cache simdjson
+        id: cache-simdjson
+        uses: actions/cache@v4
+        with:
+          path: native/shared/simdjson
+          key: simdjson-${{ hashFiles('scripts/setup-simdjson') }}
+
+      - name: Download simdjson
+        if: steps.cache-simdjson.outputs.cache-hit != 'true'
+        run: |
+          chmod +x scripts/setup-simdjson
+          ./scripts/setup-simdjson
+
       - name: Pack library tarball
         run: npm run pack:demo
 

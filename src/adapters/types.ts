@@ -7,6 +7,7 @@
 
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../query/types';
 import type { DatabaseSchema, RawRecord, TableSchema } from '../schema/types';
+import type { TurboSyncResult, TurboSyncSource } from '../sync/types';
 
 // ─── Adapter Configuration ────────────────────────────────────────────────
 
@@ -93,6 +94,26 @@ export interface StorageAdapter {
 
   /** Get the database schema version currently stored. */
   getSchemaVersion(): Promise<number>;
+
+  /**
+   * Optional: read a value from the adapter's persistent key/value metadata.
+   * Used by the sync engine to store `lastPulledAt`. Adapters without it fall
+   * back to in-memory tracking (every sync becomes a full pull).
+   */
+  getMetadata?(key: string): Promise<string | null>;
+
+  /** Optional: write a value to the adapter's persistent key/value metadata. */
+  setMetadata?(key: string, value: string): Promise<void>;
+
+  /**
+   * Optional: turbo sync — import a whole pull payload in one step.
+   *
+   * Native SQLite drivers parse the payload in C++ and write rows directly;
+   * other adapters may implement it via `JSON.parse` + `applyRemoteChanges`.
+   * Rows land as `_status = 'synced'`; tables/columns missing from `schema`
+   * are ignored/dropped and counted in the result.
+   */
+  applySyncJson?(source: TurboSyncSource, schema: DatabaseSchema): Promise<TurboSyncResult>;
 
   /** Run migrations. */
   migrate(migrations: Migration[]): Promise<void>;
