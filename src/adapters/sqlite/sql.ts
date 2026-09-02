@@ -13,6 +13,7 @@ import type {
   AndClause,
   OrClause,
   NotClause,
+  ExistsClause,
   OrderByClause,
 } from '../../query/types';
 import type { DatabaseSchema, TableSchema } from '../../schema/types';
@@ -41,6 +42,9 @@ export function createTableSQL(table: TableSchema): string {
           break;
         case 'date':
           sqlType = 'REAL';
+          break;
+        case 'json':
+          sqlType = 'TEXT';
           break;
         default:
           sqlType = 'TEXT';
@@ -72,6 +76,7 @@ export function createTableSQL(table: TableSchema): string {
 function getDefaultClause(type: string): string {
   switch (type) {
     case 'text':
+    case 'json':
       return " DEFAULT ''";
     case 'number':
       return ' DEFAULT 0';
@@ -102,17 +107,13 @@ export function selectSQL(descriptor: QueryDescriptor): { sql: string; bindings:
 
   // WHERE
   if (descriptor.conditions.length > 0) {
-    const whereClause = conditionsToSQL(descriptor.conditions, bindings);
+    const whereClause = conditionsToSQL(descriptor.conditions, bindings, table);
     sql += ` WHERE ${whereClause}`;
   }
 
   // ORDER BY
   if (descriptor.orderBy.length > 0) {
-    const orderClauses = descriptor.orderBy.map((ob) => {
-      const col = sanitizeColumnName(ob.column);
-      return `"${col}" ${ob.order === 'desc' ? 'DESC' : 'ASC'}`;
-    });
-    sql += ` ORDER BY ${orderClauses.join(', ')}`;
+    sql += ` ORDER BY ${orderBySQL(descriptor.orderBy, table)}`;
   }
 
   // LIMIT / OFFSET
@@ -137,7 +138,7 @@ export function countSQL(descriptor: QueryDescriptor): { sql: string; bindings: 
   let sql = `SELECT COUNT(*) as count FROM "${table}"`;
 
   if (descriptor.conditions.length > 0) {
-    const whereClause = conditionsToSQL(descriptor.conditions, bindings);
+    const whereClause = conditionsToSQL(descriptor.conditions, bindings, table);
     sql += ` WHERE ${whereClause}`;
   }
 
@@ -162,7 +163,7 @@ export function searchSQL(descriptor: SearchDescriptor): {
     const col = sanitizeColumnName(field);
     bindings.push(pattern);
     countBindings.push(pattern);
-    return `"${col}" LIKE ?`;
+    return `"${table}"."${col}" LIKE ?`;
   });
 
   const searchWhere = `(${searchConditions.join(' OR ')})`;
@@ -171,7 +172,7 @@ export function searchSQL(descriptor: SearchDescriptor): {
   let extraWhere = '';
   if (descriptor.conditions.length > 0) {
     const extraBindings: unknown[] = [];
-    extraWhere = ` AND ${conditionsToSQL(descriptor.conditions, extraBindings)}`;
+    extraWhere = ` AND ${conditionsToSQL(descriptor.conditions, extraBindings, table)}`;
     bindings.push(...extraBindings);
     countBindings.push(...extraBindings);
   }
@@ -183,11 +184,7 @@ export function searchSQL(descriptor: SearchDescriptor): {
   let sql = `SELECT * FROM "${table}" WHERE ${searchWhere}${extraWhere}`;
 
   if (descriptor.orderBy.length > 0) {
-    const orderClauses = descriptor.orderBy.map((ob) => {
-      const col = sanitizeColumnName(ob.column);
-      return `"${col}" ${ob.order === 'desc' ? 'DESC' : 'ASC'}`;
-    });
-    sql += ` ORDER BY ${orderClauses.join(', ')}`;
+    sql += ` ORDER BY ${orderBySQL(descriptor.orderBy, table)}`;
   }
 
   sql += ' LIMIT ? OFFSET ?';
@@ -241,28 +238,64 @@ export function deleteSQL(table: string, id: string): { sql: string; bindings: u
 }
 
 // ─── Condition helpers ─────────────────────────────────────────────────────
+//
+// Every column reference is qualified with its table ("table"."column") so
+// that EXISTS sub-queries can refer to inner and outer columns without
+// ambiguity, even when both tables share column names.
 
-function conditionsToSQL(conditions: readonly Condition[], bindings: unknown[]): string {
-  return conditions.map((c) => conditionToSQL(c, bindings)).join(' AND ');
+function orderBySQL(orderBy: readonly OrderByClause[], table: string): string {
+  return orderBy
+    .map((ob) => `${qualify(table, ob.column)} ${ob.order === 'desc' ? 'DESC' : 'ASC'}`)
+    .join(', ');
 }
 
-function conditionToSQL(condition: Condition, bindings: unknown[]): string {
+function qualify(table: string, column: string): string {
+  return `"${table}"."${sanitizeColumnName(column)}"`;
+}
+
+function conditionsToSQL(
+  conditions: readonly Condition[],
+  bindings: unknown[],
+  table: string,
+): string {
+  return conditions.map((c) => conditionToSQL(c, bindings, table)).join(' AND ');
+}
+
+function conditionToSQL(condition: Condition, bindings: unknown[], table: string): string {
   switch (condition.type) {
     case 'where':
-      return whereToSQL(condition, bindings);
+      return whereToSQL(condition, bindings, table);
     case 'and':
-      return `(${(condition as AndClause).conditions.map((c) => conditionToSQL(c, bindings)).join(' AND ')})`;
+      return `(${(condition as AndClause).conditions.map((c) => conditionToSQL(c, bindings, table)).join(' AND ')})`;
     case 'or':
-      return `(${(condition as OrClause).conditions.map((c) => conditionToSQL(c, bindings)).join(' OR ')})`;
+      return `(${(condition as OrClause).conditions.map((c) => conditionToSQL(c, bindings, table)).join(' OR ')})`;
     case 'not':
-      return `NOT (${conditionToSQL((condition as NotClause).condition, bindings)})`;
+      return `NOT (${conditionToSQL((condition as NotClause).condition, bindings, table)})`;
+    case 'exists':
+      return existsToSQL(condition as ExistsClause, bindings, table);
     default:
       throw new Error(`Unknown condition type: ${(condition as any).type}`);
   }
 }
 
-function whereToSQL(clause: WhereClause, bindings: unknown[]): string {
-  const col = `"${sanitizeColumnName(clause.column)}"`;
+/**
+ * EXISTS (SELECT 1 FROM "inner" WHERE "inner"."fc" = "outer"."lc"
+ *         AND "inner"."_status" != 'deleted' AND (<inner conditions>))
+ */
+function existsToSQL(clause: ExistsClause, bindings: unknown[], outerTable: string): string {
+  const inner = sanitizeTableName(clause.table);
+  let sql =
+    `EXISTS (SELECT 1 FROM "${inner}" WHERE ` +
+    `${qualify(inner, clause.foreignColumn)} = ${qualify(outerTable, clause.localColumn)}` +
+    ` AND ${qualify(inner, '_status')} != 'deleted'`;
+  if (clause.conditions.length > 0) {
+    sql += ` AND (${conditionsToSQL(clause.conditions, bindings, inner)})`;
+  }
+  return sql + ')';
+}
+
+function whereToSQL(clause: WhereClause, bindings: unknown[], table: string): string {
+  const col = qualify(table, clause.column);
 
   switch (clause.operator) {
     case 'eq':

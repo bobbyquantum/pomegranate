@@ -34,17 +34,29 @@ export function useObservable<T>(observable: Observable<T> | null | undefined, i
 
 // ─── useLiveQuery ──────────────────────────────────────────────────────────
 
+export interface UseLiveQueryOptions {
+  /**
+   * Also re-emit when any of these columns changes on a record in the result
+   * set (WatermelonDB `observeWithColumns`). Without it, the hook only
+   * re-renders when the set/order of matching records changes.
+   */
+  readonly columns?: readonly string[];
+}
+
 /**
  * Execute a query and subscribe to live updates.
- * Re-runs the query whenever the collection changes.
+ * Re-renders when the matching record ids change, or — with
+ * `options.columns` — when one of those columns changes on a matched record.
  */
 export function useLiveQuery<M extends Model>(
   collection: Collection<M> | null | undefined,
   buildQuery?: (qb: QueryBuilder) => void,
   deps: unknown[] = [],
+  options?: UseLiveQueryOptions,
 ): { results: M[]; isLoading: boolean } {
   const [results, setResults] = useState<M[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const columnsKey = options?.columns?.join(',') ?? '';
 
   useEffect(() => {
     if (!collection) return;
@@ -52,7 +64,9 @@ export function useLiveQuery<M extends Model>(
     setIsLoading(true);
 
     const qb = buildQuery ? collection.query(buildQuery) : collection.query();
-    const observable = collection.observeQuery(qb);
+    const observable = collection.observeQuery(qb, {
+      columns: options?.columns ? [...options.columns] : undefined,
+    });
 
     const unsub = observable.subscribe((records) => {
       setResults(records);
@@ -61,7 +75,7 @@ export function useLiveQuery<M extends Model>(
 
     return unsub;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collection, ...deps]);
+  }, [collection, columnsKey, ...deps]);
 
   return { results, isLoading };
 }

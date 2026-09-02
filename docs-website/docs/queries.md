@@ -93,6 +93,43 @@ const results = await db.get(Post)
   .fetch();
 ```
 
+## Querying Across Relations: `on()`
+
+`on(table, ...)` adds an `EXISTS` sub-query against a related table — the equivalent of WatermelonDB's `Q.on`. It matches records for which at least one related (non-deleted) record satisfies the inner conditions.
+
+```ts
+// comments whose task is done
+db.get(Comment).query((q) => q.on('tasks', 'done', true));
+
+// projects with at least one closed task that has an approved comment
+db.get(Project).query((q) =>
+  q.on('tasks', (t) => t.where('status', 'closed').on('comments', 'approved', true)),
+);
+```
+
+The join columns are resolved from the association between the two tables, looked up in this order:
+
+1. Schema relations — `m.belongsTo()` / `m.hasMany()` fields.
+2. `static associations` on the model class, keyed by the related **table name** (useful when the foreign key is declared as an ordinary column):
+
+```ts
+class Task extends Model<typeof TaskSchema> {
+  static schema = TaskSchema;
+  static associations: ModelAssociations = {
+    projects: { type: 'belongs_to', key: 'project_id' },
+    comments: { type: 'has_many', foreignKey: 'task_id' },
+  };
+}
+```
+
+`belongs_to` joins `outer.<key> = inner.id`; `has_many` joins `outer.id = inner.<foreignKey>`. If neither source knows the table, `on()` throws. To join without association metadata, give the columns explicitly:
+
+```ts
+q.onColumns('projects', 'project_id', 'id', (p) => p.where('archived', false));
+```
+
+Inner builders accept every operator, `and`/`or`, and further `on()` calls. On SQLite this compiles to a correlated `EXISTS (SELECT 1 FROM ...)` with every column qualified by its table; the Loki adapter evaluates the inner query first and rewrites the clause to an `IN` list.
+
 ## Sorting
 
 ```ts
@@ -133,7 +170,17 @@ const unsubscribe = observable.subscribe((posts) => {
 });
 ```
 
-The observable emits a new result set whenever the underlying data changes.
+The observable emits once on subscribe, then whenever the **set or order of matching records** changes (WatermelonDB `observe()`). Updates that cannot affect the result — an update to a column the query does not reference, on a record outside the result set — do not even re-run the query.
+
+To also re-emit when specific columns change on a matched record (WatermelonDB `observeWithColumns()`), pass the column names:
+
+```ts
+db.get(Post).observeQuery(query, { columns: ['title', 'updated_at'] });
+// or
+db.get(Post).observeQueryWithColumns(query, ['title', 'updated_at']);
+```
+
+`observeCount(query)` follows the same rules and emits only when the count changes. Queries using `on()` also re-run when the related table changes.
 
 See [React Hooks](./react-hooks) for ergonomic React integration.
 

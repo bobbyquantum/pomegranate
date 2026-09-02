@@ -44,7 +44,23 @@ export interface NotClause {
   readonly condition: Condition;
 }
 
-export type Condition = WhereClause | AndClause | OrClause | NotClause;
+/**
+ * EXISTS sub-query against a related table (WatermelonDB `Q.on` semantics).
+ *
+ * Matches outer rows for which at least one non-deleted row exists in `table`
+ * where `table.foreignColumn = outer.localColumn` and `conditions` hold.
+ *   belongs_to: localColumn = FK on the outer table, foreignColumn = 'id'
+ *   has_many:   localColumn = 'id', foreignColumn = FK on the inner table
+ */
+export interface ExistsClause {
+  readonly type: 'exists';
+  readonly table: string;
+  readonly localColumn: string;
+  readonly foreignColumn: string;
+  readonly conditions: readonly Condition[];
+}
+
+export type Condition = WhereClause | AndClause | OrClause | NotClause | ExistsClause;
 
 // ─── Sort / Order ──────────────────────────────────────────────────────────
 

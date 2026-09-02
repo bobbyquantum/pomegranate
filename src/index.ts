@@ -13,6 +13,7 @@ export type {
   NumberColumn,
   BooleanColumn,
   DateColumn,
+  JsonColumn,
   BelongsToDescriptor,
   HasManyDescriptor,
   RelationDescriptor,
@@ -35,11 +36,11 @@ export type {
 
 // ─── Model ─────────────────────────────────────────────────────────────────
 export { Model } from './model';
-export type { ModelStatic } from './model';
+export type { ModelStatic, ModelAssociation, ModelAssociations } from './model';
 
 // ─── Collection ────────────────────────────────────────────────────────────
 export { Collection } from './collection';
-export type { CollectionChangeType, CollectionChange } from './collection';
+export type { CollectionChangeType, CollectionChange, ObserveQueryOptions } from './collection';
 
 // ─── Database ──────────────────────────────────────────────────────────────
 export { Database } from './database';
@@ -54,8 +55,15 @@ export type {
   SortOrder,
   Condition,
   WhereClause,
+  AndClause,
+  OrClause,
+  NotClause,
+  ExistsClause,
   OrderByClause,
   BatchOperation,
+  AssociationJoin,
+  AssociationResolver,
+  QueryBuilderOptions,
 } from './query';
 
 // ─── Adapters ──────────────────────────────────────────────────────────────
@@ -99,4 +107,9 @@ export {
   DatabaseProvider,
   DatabaseSuspenseProvider,
 } from './hooks';
-export type { UseSearchOptions, UseSearchResult, DatabaseSuspenseProviderProps } from './hooks';
+export type {
+  UseLiveQueryOptions,
+  UseSearchOptions,
+  UseSearchResult,
+  DatabaseSuspenseProviderProps,
+} from './hooks';

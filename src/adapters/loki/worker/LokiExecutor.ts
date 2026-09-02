@@ -12,6 +12,7 @@ import type {
   BatchOperation,
   Condition,
   WhereClause,
+  ExistsClause,
   ComparisonOperator,
 } from '../../../query/types';
 import type { DatabaseSchema, RawRecord } from '../../../schema/types';
@@ -254,7 +255,7 @@ export class LokiExecutor {
     let chain = col.chain();
 
     if (query.conditions.length > 0) {
-      const lokiQuery = conditionsToLoki(query.conditions);
+      const lokiQuery = conditionsToLoki(this._expandExists(query.conditions));
       chain = chain.find(lokiQuery);
     }
 
@@ -276,11 +277,51 @@ export class LokiExecutor {
     const col = this._getCollection(query.table);
 
     if (query.conditions.length > 0) {
-      const lokiQuery = conditionsToLoki(query.conditions);
+      const lokiQuery = conditionsToLoki(this._expandExists(query.conditions));
       return col.chain().find(lokiQuery).count();
     }
 
     return col.count();
+  }
+
+  /**
+   * Loki has no sub-queries: evaluate each exists clause against the inner
+   * collection up front and replace it with `localColumn IN (matched values)`.
+   * Nested exists clauses are expanded recursively (innermost first).
+   */
+  private _expandExists(conditions: readonly Condition[]): Condition[] {
+    return conditions.map((condition) => this._expandExistsCondition(condition));
+  }
+
+  private _expandExistsCondition(condition: Condition): Condition {
+    switch (condition.type) {
+      case 'and':
+      case 'or':
+        return { type: condition.type, conditions: this._expandExists(condition.conditions) };
+      case 'not':
+        return { type: 'not', condition: this._expandExistsCondition(condition.condition) };
+      case 'exists':
+        return this._evaluateExists(condition);
+      default:
+        return condition;
+    }
+  }
+
+  private _evaluateExists(clause: ExistsClause): WhereClause {
+    const inner = this._getCollection(clause.table);
+    const innerConditions: Condition[] = [
+      { type: 'where', column: '_status', operator: 'neq', value: 'deleted' },
+      ...this._expandExists(clause.conditions),
+    ];
+    const docs = inner.chain().find(conditionsToLoki(innerConditions)).data() as Array<
+      Record<string, unknown>
+    >;
+    const values = new Set<unknown>();
+    for (const doc of docs) {
+      const value = doc[clause.foreignColumn];
+      if (value != null) values.add(value);
+    }
+    return { type: 'where', column: clause.localColumn, operator: 'in', value: [...values] };
   }
 
   async findById(table: string, id: string): Promise<RawRecord | null> {
@@ -347,7 +388,7 @@ export class LokiExecutor {
     });
 
     if (descriptor.conditions.length > 0) {
-      const lokiQuery = conditionsToLoki(descriptor.conditions);
+      const lokiQuery = conditionsToLoki(this._expandExists(descriptor.conditions));
       results = results.find(lokiQuery);
     }
 
@@ -542,34 +583,71 @@ function conditionsToLoki(conditions: readonly Condition[]): object {
   if (conditions.length === 1) {
     return conditionToLoki(conditions[0]);
   }
-  return { $and: conditions.map(conditionToLoki) };
+  return { $and: conditions.map((condition) => conditionToLoki(condition)) };
 }
 
-function conditionToLoki(condition: Condition): object {
+/**
+ * Translate a condition to a Loki query object. `negate` pushes a pending NOT
+ * down to the leaves (De Morgan for and/or) because Loki only supports `$not`
+ * on a single field operator, not on `$and`/`$or` groups.
+ */
+function conditionToLoki(condition: Condition, negate = false): object {
   switch (condition.type) {
-    case 'where': {
-      const w = condition as WhereClause;
-      return { [w.column]: operatorToLoki(w.operator, w.value) };
-    }
+    case 'where':
+      return whereToLoki(condition as WhereClause, negate);
     case 'and':
-      return { $and: (condition as any).conditions.map(conditionToLoki) };
-    case 'or':
-      return { $or: (condition as any).conditions.map(conditionToLoki) };
-    case 'not': {
-      const inner = conditionToLoki((condition as any).condition);
-      const negated: Record<string, any> = {};
-      for (const [key, val] of Object.entries(inner)) {
-        if (typeof val === 'object' && val !== null) {
-          negated[key] = { $not: val };
-        } else {
-          negated[key] = { $ne: val };
-        }
-      }
-      return negated;
+    case 'or': {
+      const children = (condition as { conditions: readonly Condition[] }).conditions.map((c) =>
+        conditionToLoki(c, negate),
+      );
+      const isAnd = (condition.type === 'and') !== negate;
+      return isAnd ? { $and: children } : { $or: children };
     }
+    case 'not':
+      return conditionToLoki((condition as { condition: Condition }).condition, !negate);
+    case 'exists':
+      throw new Error('exists clauses must be expanded before translation to Loki');
     default:
       throw new Error(`Unknown condition type: ${(condition as any).type}`);
   }
+}
+
+function whereToLoki(clause: WhereClause, negate: boolean): object {
+  const column = clause.column;
+
+  if (clause.operator === 'like' || clause.operator === 'notLike') {
+    // SQL: `NULL LIKE x` and `NULL NOT LIKE x` are both NULL (never match),
+    // whereas Loki's $regex would test the string "null" — guard explicitly.
+    const regex = likeToRegExp(String(clause.value));
+    const positive = (clause.operator === 'like') !== negate;
+    return {
+      $and: [
+        { [column]: { $ne: null } },
+        { [column]: positive ? { $regex: regex } : { $not: { $regex: regex } } },
+      ],
+    };
+  }
+
+  const op = operatorToLoki(clause.operator, clause.value);
+  return { [column]: negate ? { $not: op } : op };
+}
+
+/**
+ * SQL LIKE → anchored, case-insensitive RegExp.
+ * `%` matches any sequence, `_` any single character; everything else literal.
+ */
+function likeToRegExp(pattern: string): RegExp {
+  let source = '';
+  for (const char of pattern) {
+    if (char === '%') {
+      source += String.raw`[\s\S]*`;
+    } else if (char === '_') {
+      source += String.raw`[\s\S]`;
+    } else {
+      source += char.replaceAll(/[$()*+.?[\\\]^{|}]/g, String.raw`\$&`);
+    }
+  }
+  return new RegExp(`^${source}$`, 'i');
 }
 
 function operatorToLoki(op: ComparisonOperator, value: unknown): any {
@@ -599,12 +677,6 @@ function operatorToLoki(op: ComparisonOperator, value: unknown): any {
         $nin: Array.isArray(value)
           ? value.map((v) => (typeof v === 'boolean' ? (v ? 1 : 0) : v))
           : value,
-      };
-    case 'like':
-      return { $regex: new RegExp(String(value).replaceAll('%', '.*').replaceAll('_', '.'), 'i') };
-    case 'notLike':
-      return {
-        $not: { $regex: new RegExp(String(value).replaceAll('%', '.*').replaceAll('_', '.'), 'i') },
       };
     case 'between': {
       const [low, high] = value as [unknown, unknown];

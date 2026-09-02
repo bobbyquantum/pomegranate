@@ -62,7 +62,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT * FROM "posts" WHERE "status" = ?');
+      expect(sql).toBe('SELECT * FROM "posts" WHERE "posts"."status" = ?');
       expect(bindings).toEqual(['published']);
     });
 
@@ -76,7 +76,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT * FROM "posts" ORDER BY "created_at" DESC LIMIT ? OFFSET ?');
+      expect(sql).toBe('SELECT * FROM "posts" ORDER BY "posts"."created_at" DESC LIMIT ? OFFSET ?');
       expect(bindings).toEqual([10, 20]);
     });
 
@@ -91,7 +91,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT * FROM "posts" WHERE "status" = ? AND "views" > ?');
+      expect(sql).toBe('SELECT * FROM "posts" WHERE "posts"."status" = ? AND "posts"."views" > ?');
       expect(bindings).toEqual(['published', 100]);
     });
 
@@ -105,7 +105,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT * FROM "posts" WHERE "status" IN (?, ?)');
+      expect(sql).toBe('SELECT * FROM "posts" WHERE "posts"."status" IN (?, ?)');
       expect(bindings).toEqual(['draft', 'published']);
     });
 
@@ -117,7 +117,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT * FROM "posts" WHERE "views" BETWEEN ? AND ?');
+      expect(sql).toBe('SELECT * FROM "posts" WHERE "posts"."views" BETWEEN ? AND ?');
       expect(bindings).toEqual([10, 100]);
     });
 
@@ -129,7 +129,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT * FROM "posts" WHERE "deleted_at" IS NULL');
+      expect(sql).toBe('SELECT * FROM "posts" WHERE "posts"."deleted_at" IS NULL');
       expect(bindings).toEqual([]);
     });
 
@@ -149,7 +149,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT * FROM "posts" WHERE ("status" = ? OR "status" = ?)');
+      expect(sql).toBe('SELECT * FROM "posts" WHERE ("posts"."status" = ? OR "posts"."status" = ?)');
       expect(bindings).toEqual(['draft', 'published']);
     });
   });
@@ -163,7 +163,7 @@ describe('SQL Generation', () => {
         joins: [],
       });
 
-      expect(sql).toBe('SELECT COUNT(*) as count FROM "posts" WHERE "_status" != ?');
+      expect(sql).toBe('SELECT COUNT(*) as count FROM "posts" WHERE "posts"."_status" != ?');
       expect(bindings).toEqual(['deleted']);
     });
   });
