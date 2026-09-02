@@ -1,35 +1,49 @@
 /**
- * Minimal better-sqlite3 driver for exercising SQLiteAdapter in Node tests.
- * Booleans are bound as 0/1 (better-sqlite3 refuses boolean bindings).
+ * Test helper: a `SQLiteDriver` over better-sqlite3 that also exposes the raw
+ * connection and every statement it ran. Booleans are bound as 0/1 the way
+ * real React Native drivers do (better-sqlite3 refuses boolean bindings).
  */
 
 import BetterSqlite3 from 'better-sqlite3';
 import type { SQLiteDriver } from '../../adapters/sqlite/SQLiteAdapter';
 
+export interface TestSqliteDriver extends SQLiteDriver {
+  raw(): BetterSqlite3.Database;
+  statements: string[];
+}
+
 function normalize(bindings: unknown[]): unknown[] {
   return bindings.map((b) => (typeof b === 'boolean' ? (b ? 1 : 0) : b));
 }
 
-export function createBetterSqliteDriver(): SQLiteDriver {
+export function createBetterSqliteDriver(): TestSqliteDriver {
   let db: BetterSqlite3.Database | null = null;
-
-  const driver: SQLiteDriver = {
-    async open(name: string) {
+  const statements: string[] = [];
+  const need = () => {
+    if (!db) throw new Error('database is not open');
+    return db;
+  };
+  return {
+    statements,
+    raw: need,
+    async open(name) {
       db = new BetterSqlite3(name);
     },
-    async execute(sql: string, bindings: unknown[] = []) {
-      db!.prepare(sql).run(...normalize(bindings));
+    async execute(sql, bindings = []) {
+      statements.push(sql);
+      need().prepare(sql).run(...normalize(bindings));
     },
-    async query(sql: string, bindings: unknown[] = []) {
-      return db!.prepare(sql).all(...normalize(bindings)) as Record<string, unknown>[];
+    async query(sql, bindings = []) {
+      statements.push(sql);
+      return need().prepare(sql).all(...normalize(bindings)) as Record<string, unknown>[];
     },
-    async executeInTransaction(fn: () => Promise<void>) {
-      await driver.execute('BEGIN');
+    async executeInTransaction(fn) {
+      need().exec('BEGIN');
       try {
         await fn();
-        await driver.execute('COMMIT');
+        need().exec('COMMIT');
       } catch (error) {
-        await driver.execute('ROLLBACK');
+        need().exec('ROLLBACK');
         throw error;
       }
     },
@@ -38,6 +52,4 @@ export function createBetterSqliteDriver(): SQLiteDriver {
       db = null;
     },
   };
-
-  return driver;
 }
