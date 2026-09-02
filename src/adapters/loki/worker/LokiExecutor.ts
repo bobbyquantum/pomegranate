@@ -17,6 +17,9 @@ import type {
 import type { DatabaseSchema, RawRecord } from '../../../schema/types';
 import type { TurboSyncResult, TurboSyncSource } from '../../../sync/types';
 import { applySyncJsonInJs } from '../../applySyncJsonFallback';
+import { remoteValuesToApply } from '../../remoteMerge';
+import { defaultValueForColumn } from '../../../database/migrations';
+import { logger } from '../../../utils';
 
 // ─── Loki Types ───────────────────────────────────────────────────────────
 
@@ -113,7 +116,9 @@ export class LokiExecutor {
       }
     }
 
-    this._schemaVersion = schema.version;
+    // A persisted database keeps its stored version so `Database.initialize()`
+    // can tell that migrations are due; only a fresh one is at `schema.version`.
+    this._schemaVersion = existingVersion === 0 ? schema.version : existingVersion;
     this._initialized = true;
   }
 
@@ -175,8 +180,12 @@ export class LokiExecutor {
   }
 
   private _addColumn(table: string, column: string, columnType: string, isOptional = false): void {
+    this._fillColumn(table, column, getDefaultValueForMigrationColumn(columnType, isOptional));
+  }
+
+  /** Give every existing document a value for a newly added column. */
+  private _fillColumn(table: string, column: string, defaultValue: unknown): void {
     const col = this._getCollection(table);
-    const defaultValue = getDefaultValueForMigrationColumn(columnType, isOptional);
 
     for (const doc of col.find() as Array<Record<string, unknown>>) {
       if (!(column in doc)) {
@@ -397,32 +406,43 @@ export class LokiExecutor {
     for (const [table, tableChanges] of Object.entries(changes)) {
       const col = this._getCollection(table);
 
-      for (const raw of tableChanges.created) {
-        const existing = col.findOne({ id: raw.id } as any);
-        if (existing) {
-          for (const [key, value] of Object.entries(raw)) {
-            (existing as any)[key] = value;
-          }
-          (existing as any)._status = 'synced';
-          (existing as any)._changed = '';
-          col.update(existing);
-        } else {
-          col.insert({ ...raw, _status: 'synced', _changed: '' } as any);
-        }
-      }
+      // `created` and `updated` are handled identically: what matters is the
+      // local document's sync state (see StorageAdapter.applyRemoteChanges).
+      for (const raw of [...tableChanges.created, ...tableChanges.updated]) {
+        const existing = col.findOne({ id: raw.id } as any) as Record<string, unknown> | null;
 
-      for (const raw of tableChanges.updated) {
-        const existing = col.findOne({ id: raw.id } as any);
-        if (existing) {
-          for (const [key, value] of Object.entries(raw)) {
-            (existing as any)[key] = value;
-          }
-          (existing as any)._status = 'synced';
-          (existing as any)._changed = '';
-          col.update(existing);
-        } else {
+        if (!existing) {
           col.insert({ ...raw, _status: 'synced', _changed: '' } as any);
+          continue;
         }
+
+        const status = existing._status;
+        if (status === 'deleted') {
+          // Locally deleted — the delete wins and will be pushed.
+          continue;
+        }
+
+        if (status === 'synced') {
+          for (const [key, value] of Object.entries(raw)) {
+            existing[key] = value;
+          }
+          existing._status = 'synced';
+          existing._changed = '';
+          col.update(existing);
+          continue;
+        }
+
+        // Locally 'updated' (or 'created' — an id collision, treated the same).
+        if (status === 'created') {
+          logger.warn(
+            `Sync: remote record "${table}/${raw.id}" collides with a locally created record; ` +
+              'merging and keeping the local changes.',
+          );
+        }
+        for (const [key, value] of Object.entries(remoteValuesToApply(raw, existing._changed))) {
+          existing[key] = value;
+        }
+        col.update(existing);
       }
 
       for (const id of tableChanges.deleted) {
@@ -430,6 +450,7 @@ export class LokiExecutor {
         if (doc) col.remove(doc);
       }
     }
+    await this._save();
   }
 
   async markAsSynced(table: string, ids: string[]): Promise<void> {
@@ -497,6 +518,12 @@ export class LokiExecutor {
             break;
           case 'addColumn':
             this._addColumn(step.table, step.column, step.columnType, step.isOptional);
+            break;
+          case 'addColumns':
+            for (const column of step.columns) {
+              const defaultValue = defaultValueForColumn(column.type, column.isOptional);
+              this._fillColumn(step.table, column.name, defaultValue);
+            }
             break;
           case 'destroyTable':
             this._db!.removeCollection(step.table);

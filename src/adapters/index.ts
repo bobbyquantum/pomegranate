@@ -4,6 +4,7 @@ export type {
   EncryptionConfig,
   Migration,
   MigrationStep,
+  MigrationEvents,
 } from './types';
 export { SQLiteAdapter } from './sqlite';
 export type { SQLiteAdapterConfig, SQLiteDriver } from './sqlite';

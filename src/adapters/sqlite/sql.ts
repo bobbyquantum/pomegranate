@@ -15,10 +15,75 @@ import type {
   NotClause,
   OrderByClause,
 } from '../../query/types';
-import type { DatabaseSchema, TableSchema } from '../../schema/types';
+import type { DatabaseSchema, TableColumnSchema, TableSchema } from '../../schema/types';
 import { sanitizeTableName, sanitizeColumnName } from '../../utils';
 
 // ─── CREATE TABLE ──────────────────────────────────────────────────────────
+
+/** SQLite storage type for a schema column type. */
+export function sqlTypeForColumn(type: TableColumnSchema['type']): string {
+  switch (type) {
+    case 'text':
+      return 'TEXT';
+    case 'number':
+      return 'REAL';
+    case 'boolean':
+      return 'INTEGER';
+    case 'date':
+      return 'REAL';
+    default:
+      return 'TEXT';
+  }
+}
+
+/**
+ * Column definition shared by `CREATE TABLE` and `ALTER TABLE … ADD COLUMN`:
+ * optional → nullable `DEFAULT NULL`; required → `NOT NULL` with the type's default.
+ */
+export function columnDefinitionSQL(col: TableColumnSchema): string {
+  const name = sanitizeColumnName(col.name);
+  const sqlType = sqlTypeForColumn(col.type);
+  const nullable = col.isOptional ? '' : ' NOT NULL';
+  const defaultVal = col.isOptional ? ' DEFAULT NULL' : getDefaultClause(col.type);
+  return `"${name}" ${sqlType}${nullable}${defaultVal}`;
+}
+
+/**
+ * `ALTER TABLE … ADD COLUMN` for a schema column, with the same rules as
+ * `createTableSQL`. The one difference: SQLite refuses to add a `NOT NULL`
+ * column whose default is `NULL`, so a required `date` column gets `DEFAULT 0`.
+ */
+export function addColumnSQL(table: string, col: TableColumnSchema): string {
+  const tableName = sanitizeTableName(table);
+  let definition = columnDefinitionSQL(col);
+  if (!col.isOptional && col.type === 'date') {
+    definition = definition.replace(/ DEFAULT NULL$/, ' DEFAULT 0');
+  }
+  return `ALTER TABLE "${tableName}" ADD COLUMN ${definition}`;
+}
+
+/**
+ * `ALTER TABLE … ADD COLUMN` for the legacy `addColumn` migration step, which
+ * names a SQL type rather than a schema type. Nullability/default follow the
+ * same rules: optional → nullable, required → `NOT NULL` with `''` for text
+ * types and `0` for numeric ones.
+ */
+export function legacyAddColumnSQL(
+  table: string,
+  column: string,
+  columnType: string,
+  isOptional: boolean,
+): string {
+  const tableName = sanitizeTableName(table);
+  const name = sanitizeColumnName(column);
+  const sqlType = columnType.trim();
+  if (isOptional) {
+    return `ALTER TABLE "${tableName}" ADD COLUMN "${name}" ${sqlType} DEFAULT NULL`;
+  }
+  const isNumeric = /^(int|integer|real|float|double|numeric|bool|boolean|number)\b/i.test(sqlType);
+  const defaultVal = isNumeric ? '0' : "''";
+  return `ALTER TABLE "${tableName}" ADD COLUMN "${name}" ${sqlType} NOT NULL DEFAULT ${defaultVal}`;
+}
 
 export function createTableSQL(table: TableSchema): string {
   const tableName = sanitizeTableName(table.name);
@@ -26,29 +91,7 @@ export function createTableSQL(table: TableSchema): string {
     '"id" TEXT PRIMARY KEY NOT NULL',
     '"_status" TEXT NOT NULL DEFAULT \'created\'',
     '"_changed" TEXT NOT NULL DEFAULT \'\'',
-    ...table.columns.map((col) => {
-      const name = sanitizeColumnName(col.name);
-      let sqlType: string;
-      switch (col.type) {
-        case 'text':
-          sqlType = 'TEXT';
-          break;
-        case 'number':
-          sqlType = 'REAL';
-          break;
-        case 'boolean':
-          sqlType = 'INTEGER';
-          break;
-        case 'date':
-          sqlType = 'REAL';
-          break;
-        default:
-          sqlType = 'TEXT';
-      }
-      const nullable = col.isOptional ? '' : ' NOT NULL';
-      const defaultVal = col.isOptional ? ' DEFAULT NULL' : getDefaultClause(col.type);
-      return `"${name}" ${sqlType}${nullable}${defaultVal}`;
-    }),
+    ...table.columns.map(columnDefinitionSQL),
   ];
 
   const createSQL = `CREATE TABLE IF NOT EXISTS "${tableName}" (${columnDefs.join(', ')})`;

@@ -65,21 +65,38 @@ export { LokiAdapter, SynchronousWorker } from './adapters';
 export type { LokiAdapterConfig, WorkerInterface } from './adapters';
 export { createExpoSQLiteDriver } from './adapters';
 export type { ExpoSQLiteDriverConfig } from './adapters';
-export type { StorageAdapter, EncryptionConfig, Migration, MigrationStep } from './adapters';
+export type {
+  StorageAdapter,
+  EncryptionConfig,
+  Migration,
+  MigrationStep,
+  MigrationEvents,
+} from './adapters';
+export { resolveMigrationChain, migrationSyncInfo } from './database/migrations';
 
 // ─── Sync ──────────────────────────────────────────────────────────────────
-export { performSync } from './sync';
+export {
+  performSync,
+  hasUnsyncedChanges,
+  getLastPulledAt,
+  setLastPulledAt,
+  getLastPulledSchemaVersion,
+  filterChangesToSchema,
+} from './sync';
 export type {
   SyncConfig,
   SyncPullParams,
   SyncPullResult,
   SyncPushPayload,
+  SyncPushResult,
+  SyncMigrationInfo,
   SyncTableChanges,
   SyncTableChangeSet,
   SyncState,
   SyncLog,
   TurboSyncSource,
   TurboSyncResult,
+  FilteredChanges,
 } from './sync';
 
 // ─── Observable ────────────────────────────────────────────────────────────
