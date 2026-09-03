@@ -373,10 +373,15 @@ export class Database implements ModelDatabaseRef {
 
   /**
    * Completely reset the database — drops all data.
+   *
+   * The database is left uninitialized: call `initialize()` again to recreate
+   * the tables (at `schemaVersion`) before using it. Safe to call from inside
+   * `write()`; the re-initialisation then joins the running transaction.
    */
   async reset(): Promise<void> {
     await this._adapter.reset();
     this._clearAllCaches();
+    this._initialized = false;
     this._events$.next({ type: 'reset' });
   }
 

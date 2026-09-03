@@ -58,6 +58,14 @@
     "./native-sqlite": {
       "types": "./dist/adapters/native-sqlite/index.d.ts",
       "default": "./dist/adapters/native-sqlite/index.js"
+    },
+    "./watermelon": {
+      "types": "./dist/watermelon/index.d.ts",
+      "default": "./dist/watermelon/index.js"
+    },
+    "./watermelon/impl": {
+      "types": "./dist/watermelon/index.d.ts",
+      "default": "./dist/watermelon/index.js"
     }
   },
   "scripts": {

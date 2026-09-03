@@ -85,7 +85,9 @@ export class LokiExecutor {
 
     if (this._config.lokiInstance) {
       this._db = this._config.lokiInstance;
-    } else {
+    } else if (!this._db) {
+      // After `reset()` the (now empty) instance is kept so that a persisted
+      // database is not reloaded from storage with its old contents.
       this._db = await this._createLokiDb();
     }
 

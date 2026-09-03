@@ -111,6 +111,7 @@ export class SQLiteAdapter implements StorageAdapter {
   private _databaseName: string;
   private _encryption?: EncryptionConfig;
   private _initialized = false;
+  private _opened = false;
   private _inWriteTransaction = false;
 
   constructor(config: SQLiteAdapterConfig) {
@@ -130,7 +131,11 @@ export class SQLiteAdapter implements StorageAdapter {
   async initialize(schema: DatabaseSchema): Promise<void> {
     if (this._initialized) return;
 
-    await this._driver.open(this._databaseName);
+    // `reset()` drops the tables but keeps the connection; only open once.
+    if (!this._opened) {
+      await this._driver.open(this._databaseName);
+      this._opened = true;
+    }
 
     // Create metadata table
     await this._driver.execute(
@@ -549,11 +554,18 @@ export class SQLiteAdapter implements StorageAdapter {
       'SELECT name FROM sqlite_master WHERE type=\'table\' AND name NOT LIKE \'sqlite_%\'',
     );
 
-    await this._driver.executeInTransaction(async () => {
+    const dropAll = async () => {
       for (const t of tables) {
         await this._driver.execute(`DROP TABLE IF EXISTS "${t.name}"`);
       }
-    });
+    };
+
+    // Inside `writeTransaction` a nested BEGIN would fail — join it instead.
+    if (this._inWriteTransaction) {
+      await dropAll();
+    } else {
+      await this._driver.executeInTransaction(dropAll);
+    }
 
     this._initialized = false;
   }
@@ -562,6 +574,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
   async close(): Promise<void> {
     await this._driver.close();
+    this._opened = false;
   }
 }
 
