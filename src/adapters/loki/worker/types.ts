@@ -23,6 +23,9 @@ export type WorkerCommandType =
   | 'applyRemoteChanges'
   | 'markAsSynced'
   | 'getSchemaVersion'
+  | 'getMetadata'
+  | 'setMetadata'
+  | 'applySyncJson'
   | 'migrate'
   | 'reset'
   | 'close';

@@ -5,13 +5,15 @@
  * and change notification. Each Collection is associated with one Model class.
  */
 
-import type { ModelSchema, RawRecord, SchemaFields } from '../schema/types';
+import type { ModelSchema, RawRecord } from '../schema/types';
 import { createRawRecord } from '../model/Model';
 import type { ModelStatic, ModelCollectionRef, ModelDatabaseRef, Model } from '../model/Model';
 import { QueryBuilder } from '../query/QueryBuilder';
-import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../query/types';
+import type { AssociationJoin } from '../query/QueryBuilder';
+import type { QueryDescriptor, SearchDescriptor } from '../query/types';
+import { collectQueryColumns, collectExistsTables } from '../query/introspect';
 import { Subject } from '../observable/Subject';
-import type { Observable, Unsubscribe } from '../observable/Subject';
+import type { Observable } from '../observable/Subject';
 import { SharedObservable } from '../observable/Subject';
 import type { StorageAdapter } from '../adapters/types';
 
@@ -22,7 +24,28 @@ export type CollectionChangeType = 'created' | 'updated' | 'deleted';
 export interface CollectionChange {
   readonly type: CollectionChangeType;
   readonly record: Model;
+  /**
+   * Column names changed by an `updated` event (from `Model.update()`).
+   * Absent for created/deleted events and for synthetic notifications
+   * (batch, sync), which live queries treat as "anything may have changed".
+   */
+  readonly columns?: readonly string[];
 }
+
+export interface ObserveQueryOptions {
+  /**
+   * Re-emit when any of these columns changes on a record in the result set
+   * (WatermelonDB `observeWithColumns`). Without it, the observable emits only
+   * when the set/order of matching record ids changes (`observe`).
+   */
+  readonly columns?: readonly string[];
+}
+
+/** What a Collection needs from its Database */
+type CollectionDatabase = ModelDatabaseRef & {
+  readonly _adapter: StorageAdapter;
+  collection(table: string): Collection;
+};
 
 // ─── Collection class ──────────────────────────────────────────────────────
 
@@ -30,7 +53,7 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
   readonly table: string;
   private _modelClass: ModelStatic;
   private _schema: ModelSchema;
-  private _database: ModelDatabaseRef & { _adapter: StorageAdapter };
+  private _database: CollectionDatabase;
 
   /** In-memory cache of instantiated records by ID */
   private _cache = new Map<string, M>();
@@ -38,7 +61,7 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
   /** Emits whenever the collection changes */
   private _changes$ = new Subject<CollectionChange>();
 
-  constructor(database: ModelDatabaseRef & { _adapter: StorageAdapter }, modelClass: ModelStatic) {
+  constructor(database: CollectionDatabase, modelClass: ModelStatic) {
     this._database = database;
     this._modelClass = modelClass;
     this._schema = modelClass.schema;
@@ -98,11 +121,14 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
 
   /**
    * Query records using the fluent QueryBuilder.
+   * The builder can resolve associations to other tables for `on()`.
    */
   query(): QueryBuilder;
   query(fn: (qb: QueryBuilder) => void): QueryBuilder;
   query(fn?: (qb: QueryBuilder) => void): QueryBuilder {
-    const qb = new QueryBuilder(this.table);
+    const qb = new QueryBuilder(this.table, {
+      associations: (from, to) => this._resolveAssociation(from, to),
+    });
     // Automatically exclude soft-deleted records
     qb.where('_status', 'neq', 'deleted');
     if (fn) fn(qb);
@@ -113,9 +139,7 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
    * Execute a query and return model instances.
    */
   async fetch(queryOrBuilder: QueryDescriptor | QueryBuilder): Promise<M[]> {
-    const descriptor =
-      queryOrBuilder instanceof QueryBuilder ? queryOrBuilder.build() : queryOrBuilder;
-
+    const descriptor = toDescriptor(queryOrBuilder);
     const raws = await this._database._adapter.find(descriptor);
     return raws.map((raw) => this._materialize(raw));
   }
@@ -124,12 +148,7 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
    * Count records matching a query.
    */
   async count(queryOrBuilder?: QueryDescriptor | QueryBuilder): Promise<number> {
-    const descriptor = queryOrBuilder
-      ? (queryOrBuilder instanceof QueryBuilder
-        ? queryOrBuilder.build()
-        : queryOrBuilder)
-      : this.query().build();
-
+    const descriptor = queryOrBuilder ? toDescriptor(queryOrBuilder) : this.query().build();
     return this._database._adapter.count(descriptor);
   }
 
@@ -176,27 +195,41 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
   }
 
   /**
-   * Create a live query that re-runs whenever the collection changes.
-   * Returns an observable of record arrays.
+   * Create a live query (WatermelonDB `observe` / `observeWithColumns`).
+   *
+   * Emits once on subscribe, then whenever the ordered list of matching ids
+   * changes — or, with `options.columns`, when one of those columns changes
+   * on a matched record. Change events are filtered for relevance before the
+   * query is re-run: an `updated` event with column info is ignored unless the
+   * record is in the current result set or one of its changed columns is
+   * referenced by the query. Changes to tables reached via `on()` (exists
+   * clauses) always trigger a re-run.
    */
-  observeQuery(queryOrBuilder: QueryDescriptor | QueryBuilder): Observable<M[]> {
-    const descriptor =
-      queryOrBuilder instanceof QueryBuilder ? queryOrBuilder.build() : queryOrBuilder;
+  observeQuery(
+    queryOrBuilder: QueryDescriptor | QueryBuilder,
+    options: ObserveQueryOptions = {},
+  ): Observable<M[]> {
+    const descriptor = toDescriptor(queryOrBuilder);
+    const columns = options.columns ? [...options.columns] : null;
 
-    return new SharedObservable<M[]>((emit) => {
-      // Initial fetch
-      this._database._adapter.find(descriptor).then((raws) => {
-        emit(raws.map((raw) => this._materialize(raw)));
-      });
+    return this._observeLive<RawRecord[], M[]>(
+      descriptor,
+      () => this._database._adapter.find(descriptor),
+      (raws) => raws.map((raw) => this._materialize(raw)),
+      (next, previous) => resultSetChanged(next, previous, columns),
+      (raws) => new Set(raws.map((raw) => raw.id)),
+    );
+  }
 
-      // Re-fetch on any collection change
-      const unsub = this._changes$.subscribe(async () => {
-        const raws = await this._database._adapter.find(descriptor);
-        emit(raws.map((raw) => this._materialize(raw)));
-      });
-
-      return unsub;
-    });
+  /**
+   * Live query that also re-emits when any of `columns` changes on a matched
+   * record. Alias for `observeQuery(query, { columns })`.
+   */
+  observeQueryWithColumns(
+    queryOrBuilder: QueryDescriptor | QueryBuilder,
+    columns: readonly string[],
+  ): Observable<M[]> {
+    return this.observeQuery(queryOrBuilder, { columns });
   }
 
   /**
@@ -223,36 +256,154 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
   }
 
   /**
-   * Observe a count matching a query.
+   * Observe a count matching a query. Emits once on subscribe, then only when
+   * the count changes. Irrelevant `updated` events are filtered as in
+   * `observeQuery` (by referenced columns; there is no id set to consult).
    */
   observeCount(queryOrBuilder?: QueryDescriptor | QueryBuilder): Observable<number> {
-    const descriptor = queryOrBuilder
-      ? (queryOrBuilder instanceof QueryBuilder
-        ? queryOrBuilder.build()
-        : queryOrBuilder)
-      : this.query().build();
+    const descriptor = queryOrBuilder ? toDescriptor(queryOrBuilder) : this.query().build();
 
-    return new SharedObservable<number>((emit) => {
-      this._database._adapter.count(descriptor).then(emit);
+    return this._observeLive<number, number>(
+      descriptor,
+      () => this._database._adapter.count(descriptor),
+      (count) => count,
+      (next, previous) => next !== previous,
+      () => null,
+    );
+  }
 
-      const unsub = this._changes$.subscribe(async () => {
-        emit(await this._database._adapter.count(descriptor));
-      });
+  /**
+   * Shared live-query engine.
+   *
+   * `execute` runs the query; `project` maps its result to the emitted value
+   * (always called, so caches stay fresh); `hasChanged` decides whether to
+   * emit; `idsOf` exposes the current result ids for relevance filtering.
+   * Runs are serialised and coalesced so results never emit out of order.
+   */
+  private _observeLive<R, T>(
+    descriptor: QueryDescriptor,
+    execute: () => Promise<R>,
+    project: (result: R) => T,
+    hasChanged: (next: R, previous: R) => boolean,
+    idsOf: (result: R) => ReadonlySet<string> | null,
+  ): Observable<T> {
+    const queryColumns = collectQueryColumns(descriptor);
+    const innerTables = [...collectExistsTables(descriptor)].filter((t) => t !== this.table);
 
-      return unsub;
+    return new SharedObservable<T>((emit) => {
+      let cancelled = false;
+      let previous: { value: R } | null = null;
+      let lastIds: ReadonlySet<string> | null = null;
+      let running = false;
+      let dirty = false;
+
+      const run = async (): Promise<void> => {
+        if (running) {
+          dirty = true;
+          return;
+        }
+        running = true;
+        try {
+          do {
+            dirty = false;
+            const next = await execute();
+            if (cancelled) return;
+            const changed = !previous || hasChanged(next, previous.value);
+            previous = { value: next };
+            lastIds = idsOf(next);
+            const projected = project(next);
+            if (changed) emit(projected);
+          } while (dirty && !cancelled);
+        } finally {
+          running = false;
+        }
+      };
+
+      const isRelevant = (change: CollectionChange): boolean => {
+        if (change.type !== 'updated' || !change.columns || !previous) return true;
+        if (lastIds?.has(change.record.id)) return true;
+        return change.columns.some((column) => queryColumns.has(column));
+      };
+
+      void run();
+
+      const unsubs = [
+        subscribeToFutureChanges(this._changes$, (change) => {
+          if (isRelevant(change)) void run();
+        }),
+      ];
+      for (const table of innerTables) {
+        const inner = this._collectionFor(table);
+        if (inner) {
+          unsubs.push(
+            subscribeToFutureChanges(inner.changes$, () => {
+              void run();
+            }),
+          );
+        }
+      }
+
+      return () => {
+        cancelled = true;
+        for (const unsub of unsubs) unsub();
+      };
     });
+  }
+
+  // ─── Associations (for QueryBuilder.on) ────────────────────────────
+
+  /**
+   * Join columns linking this table to `table`, from the schema's relations
+   * first, then the model class's `static associations`. `null` if unknown.
+   */
+  _associationTo(table: string): AssociationJoin | null {
+    for (const relation of this._schema.relations) {
+      if (relation._relatedSchemaThunk().table === table) {
+        return relation.kind === 'belongs_to'
+          ? { localColumn: relation.foreignKey, foreignColumn: 'id' }
+          : { localColumn: 'id', foreignColumn: relation.foreignKey };
+      }
+    }
+    const association = this._modelClass.associations?.[table];
+    if (association) {
+      return association.type === 'belongs_to'
+        ? { localColumn: association.key, foreignColumn: 'id' }
+        : { localColumn: 'id', foreignColumn: association.foreignKey };
+    }
+    return null;
+  }
+
+  private _resolveAssociation(fromTable: string, toTable: string): AssociationJoin | null {
+    const from = fromTable === this.table ? this : this._collectionFor(fromTable);
+    return from ? from._associationTo(toTable) : null;
+  }
+
+  private _collectionFor(table: string): Collection | null {
+    try {
+      return this._database.collection(table);
+    } catch {
+      return null;
+    }
   }
 
   // ─── Internal (called by Model) ────────────────────────────────────
 
-  async _update(id: string, rawUpdates: Partial<RawRecord>): Promise<void> {
+  async _update(
+    id: string,
+    rawUpdates: Partial<RawRecord>,
+    changedColumns?: readonly string[],
+  ): Promise<void> {
     const existing = this._cache.get(id);
     if (!existing) throw new Error(`Cannot update: record ${id} not in cache`);
 
     const merged = { ...existing._rawRecord, ...rawUpdates } as RawRecord;
     await this._database._adapter.update(this.table, merged);
 
-    this._changes$.next({ type: 'updated', record: existing });
+    this._changes$.next({
+      type: 'updated',
+      record: existing,
+      columns: changedColumns ? [...changedColumns] : undefined,
+    });
   }
 
   async _delete(id: string): Promise<void> {
@@ -306,8 +457,63 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
     return this._materialize(raw);
   }
 
-  /** Notify external change (used by sync/batch) */
-  _notifyChange(type: CollectionChangeType, record: Model): void {
-    this._changes$.next({ type, record });
+  /**
+   * Apply raw updates to an already-instantiated record so it reflects a
+   * change made directly through the adapter (e.g. marked synced). No-op when
+   * the record is not cached; the record's own observable emits.
+   */
+  _refreshCached(id: string, updates: Partial<RawRecord>): void {
+    this._cache.get(id)?._setRaw(updates);
   }
+
+  /** Drop a record from the cache (after it was destroyed through the adapter). */
+  _evictCached(id: string): void {
+    this._cache.delete(id);
+  }
+
+  /**
+   * Notify external change (used by sync/batch).
+   * Omit `columns` when the changed columns are unknown — live queries then
+   * re-run unconditionally.
+   */
+  _notifyChange(type: CollectionChangeType, record: Model, columns?: readonly string[]): void {
+    this._changes$.next({ type, record, columns });
+  }
+}
+
+// ─── Module helpers ────────────────────────────────────────────────────────
+
+/**
+ * `Subject` replays its last value synchronously on subscribe; for a change
+ * stream that is a stale event the initial query run already covers, so skip it.
+ */
+function subscribeToFutureChanges(
+  changes: Observable<CollectionChange>,
+  handler: (change: CollectionChange) => void,
+): () => void {
+  let subscribed = false;
+  const unsub = changes.subscribe((change) => {
+    if (subscribed) handler(change);
+  });
+  subscribed = true;
+  return unsub;
+}
+
+function toDescriptor(queryOrBuilder: QueryDescriptor | QueryBuilder): QueryDescriptor {
+  return queryOrBuilder instanceof QueryBuilder ? queryOrBuilder.build() : queryOrBuilder;
+}
+
+/**
+ * True when the ordered id list differs, or (when `columns` is given) any of
+ * those columns' raw values differs for a record present in both results.
+ */
+function resultSetChanged(
+  next: readonly RawRecord[],
+  previous: readonly RawRecord[],
+  columns: readonly string[] | null,
+): boolean {
+  if (next.length !== previous.length) return true;
+  if (next.some((record, i) => record.id !== previous[i].id)) return true;
+  if (!columns) return false;
+  return next.some((record, i) => columns.some((column) => record[column] !== previous[i][column]));
 }

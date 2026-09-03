@@ -12,9 +12,15 @@ import type {
   BatchOperation,
   Condition,
   WhereClause,
+  ExistsClause,
   ComparisonOperator,
 } from '../../../query/types';
 import type { DatabaseSchema, RawRecord } from '../../../schema/types';
+import type { TurboSyncResult, TurboSyncSource } from '../../../sync/types';
+import { applySyncJsonInJs } from '../../applySyncJsonFallback';
+import { remoteValuesToApply } from '../../remoteMerge';
+import { defaultValueForColumn } from '../../../database/migrations';
+import { logger } from '../../../utils';
 
 // ─── Loki Types ───────────────────────────────────────────────────────────
 
@@ -79,7 +85,9 @@ export class LokiExecutor {
 
     if (this._config.lokiInstance) {
       this._db = this._config.lokiInstance;
-    } else {
+    } else if (!this._db) {
+      // After `reset()` the (now empty) instance is kept so that a persisted
+      // database is not reloaded from storage with its old contents.
       this._db = await this._createLokiDb();
     }
 
@@ -111,7 +119,9 @@ export class LokiExecutor {
       }
     }
 
-    this._schemaVersion = schema.version;
+    // A persisted database keeps its stored version so `Database.initialize()`
+    // can tell that migrations are due; only a fresh one is at `schema.version`.
+    this._schemaVersion = existingVersion === 0 ? schema.version : existingVersion;
     this._initialized = true;
   }
 
@@ -173,8 +183,12 @@ export class LokiExecutor {
   }
 
   private _addColumn(table: string, column: string, columnType: string, isOptional = false): void {
+    this._fillColumn(table, column, getDefaultValueForMigrationColumn(columnType, isOptional));
+  }
+
+  /** Give every existing document a value for a newly added column. */
+  private _fillColumn(table: string, column: string, defaultValue: unknown): void {
     const col = this._getCollection(table);
-    const defaultValue = getDefaultValueForMigrationColumn(columnType, isOptional);
 
     for (const doc of col.find() as Array<Record<string, unknown>>) {
       if (!(column in doc)) {
@@ -252,7 +266,7 @@ export class LokiExecutor {
     let chain = col.chain();
 
     if (query.conditions.length > 0) {
-      const lokiQuery = conditionsToLoki(query.conditions);
+      const lokiQuery = conditionsToLoki(this._expandExists(query.conditions));
       chain = chain.find(lokiQuery);
     }
 
@@ -274,11 +288,51 @@ export class LokiExecutor {
     const col = this._getCollection(query.table);
 
     if (query.conditions.length > 0) {
-      const lokiQuery = conditionsToLoki(query.conditions);
+      const lokiQuery = conditionsToLoki(this._expandExists(query.conditions));
       return col.chain().find(lokiQuery).count();
     }
 
     return col.count();
+  }
+
+  /**
+   * Loki has no sub-queries: evaluate each exists clause against the inner
+   * collection up front and replace it with `localColumn IN (matched values)`.
+   * Nested exists clauses are expanded recursively (innermost first).
+   */
+  private _expandExists(conditions: readonly Condition[]): Condition[] {
+    return conditions.map((condition) => this._expandExistsCondition(condition));
+  }
+
+  private _expandExistsCondition(condition: Condition): Condition {
+    switch (condition.type) {
+      case 'and':
+      case 'or':
+        return { type: condition.type, conditions: this._expandExists(condition.conditions) };
+      case 'not':
+        return { type: 'not', condition: this._expandExistsCondition(condition.condition) };
+      case 'exists':
+        return this._evaluateExists(condition);
+      default:
+        return condition;
+    }
+  }
+
+  private _evaluateExists(clause: ExistsClause): WhereClause {
+    const inner = this._getCollection(clause.table);
+    const innerConditions: Condition[] = [
+      { type: 'where', column: '_status', operator: 'neq', value: 'deleted' },
+      ...this._expandExists(clause.conditions),
+    ];
+    const docs = inner.chain().find(conditionsToLoki(innerConditions)).data() as Array<
+      Record<string, unknown>
+    >;
+    const values = new Set<unknown>();
+    for (const doc of docs) {
+      const value = doc[clause.foreignColumn];
+      if (value != null) values.add(value);
+    }
+    return { type: 'where', column: clause.localColumn, operator: 'in', value: [...values] };
   }
 
   async findById(table: string, id: string): Promise<RawRecord | null> {
@@ -345,7 +399,7 @@ export class LokiExecutor {
     });
 
     if (descriptor.conditions.length > 0) {
-      const lokiQuery = conditionsToLoki(descriptor.conditions);
+      const lokiQuery = conditionsToLoki(this._expandExists(descriptor.conditions));
       results = results.find(lokiQuery);
     }
 
@@ -395,32 +449,43 @@ export class LokiExecutor {
     for (const [table, tableChanges] of Object.entries(changes)) {
       const col = this._getCollection(table);
 
-      for (const raw of tableChanges.created) {
-        const existing = col.findOne({ id: raw.id } as any);
-        if (existing) {
-          for (const [key, value] of Object.entries(raw)) {
-            (existing as any)[key] = value;
-          }
-          (existing as any)._status = 'synced';
-          (existing as any)._changed = '';
-          col.update(existing);
-        } else {
-          col.insert({ ...raw, _status: 'synced', _changed: '' } as any);
-        }
-      }
+      // `created` and `updated` are handled identically: what matters is the
+      // local document's sync state (see StorageAdapter.applyRemoteChanges).
+      for (const raw of [...tableChanges.created, ...tableChanges.updated]) {
+        const existing = col.findOne({ id: raw.id } as any) as Record<string, unknown> | null;
 
-      for (const raw of tableChanges.updated) {
-        const existing = col.findOne({ id: raw.id } as any);
-        if (existing) {
-          for (const [key, value] of Object.entries(raw)) {
-            (existing as any)[key] = value;
-          }
-          (existing as any)._status = 'synced';
-          (existing as any)._changed = '';
-          col.update(existing);
-        } else {
+        if (!existing) {
           col.insert({ ...raw, _status: 'synced', _changed: '' } as any);
+          continue;
         }
+
+        const status = existing._status;
+        if (status === 'deleted') {
+          // Locally deleted — the delete wins and will be pushed.
+          continue;
+        }
+
+        if (status === 'synced') {
+          for (const [key, value] of Object.entries(raw)) {
+            existing[key] = value;
+          }
+          existing._status = 'synced';
+          existing._changed = '';
+          col.update(existing);
+          continue;
+        }
+
+        // Locally 'updated' (or 'created' — an id collision, treated the same).
+        if (status === 'created') {
+          logger.warn(
+            `Sync: remote record "${table}/${raw.id}" collides with a locally created record; ` +
+              'merging and keeping the local changes.',
+          );
+        }
+        for (const [key, value] of Object.entries(remoteValuesToApply(raw, existing._changed))) {
+          existing[key] = value;
+        }
+        col.update(existing);
       }
 
       for (const id of tableChanges.deleted) {
@@ -428,6 +493,7 @@ export class LokiExecutor {
         if (doc) col.remove(doc);
       }
     }
+    await this._save();
   }
 
   async markAsSynced(table: string, ids: string[]): Promise<void> {
@@ -446,6 +512,32 @@ export class LokiExecutor {
 
   async getSchemaVersion(): Promise<number> {
     return this._schemaVersion;
+  }
+
+  // ─── Metadata ───────────────────────────────────────────────────────
+
+  async getMetadata(key: string): Promise<string | null> {
+    const doc = this._getMetadataCollection().findOne({ key } as any) as { value?: unknown } | null;
+    return doc && doc.value != null ? String(doc.value) : null;
+  }
+
+  async setMetadata(key: string, value: string): Promise<void> {
+    const metaCollection = this._getMetadataCollection();
+    const existing = metaCollection.findOne({ key } as any);
+    if (existing) {
+      (existing as any).value = value;
+      metaCollection.update(existing);
+    } else {
+      metaCollection.insert({ key, value } as any);
+    }
+    await this._save();
+  }
+
+  // ─── Turbo sync ─────────────────────────────────────────────────────
+
+  /** Loki has no native importer; parse in JS and reuse applyRemoteChanges. */
+  async applySyncJson(source: TurboSyncSource, schema: DatabaseSchema): Promise<TurboSyncResult> {
+    return applySyncJsonInJs(this, source, schema);
   }
 
   // ─── Migration ──────────────────────────────────────────────────────
@@ -469,6 +561,12 @@ export class LokiExecutor {
             break;
           case 'addColumn':
             this._addColumn(step.table, step.column, step.columnType, step.isOptional);
+            break;
+          case 'addColumns':
+            for (const column of step.columns) {
+              const defaultValue = defaultValueForColumn(column.type, column.isOptional);
+              this._fillColumn(step.table, column.name, defaultValue);
+            }
             break;
           case 'destroyTable':
             this._db!.removeCollection(step.table);
@@ -514,34 +612,71 @@ function conditionsToLoki(conditions: readonly Condition[]): object {
   if (conditions.length === 1) {
     return conditionToLoki(conditions[0]);
   }
-  return { $and: conditions.map(conditionToLoki) };
+  return { $and: conditions.map((condition) => conditionToLoki(condition)) };
 }
 
-function conditionToLoki(condition: Condition): object {
+/**
+ * Translate a condition to a Loki query object. `negate` pushes a pending NOT
+ * down to the leaves (De Morgan for and/or) because Loki only supports `$not`
+ * on a single field operator, not on `$and`/`$or` groups.
+ */
+function conditionToLoki(condition: Condition, negate = false): object {
   switch (condition.type) {
-    case 'where': {
-      const w = condition as WhereClause;
-      return { [w.column]: operatorToLoki(w.operator, w.value) };
-    }
+    case 'where':
+      return whereToLoki(condition as WhereClause, negate);
     case 'and':
-      return { $and: (condition as any).conditions.map(conditionToLoki) };
-    case 'or':
-      return { $or: (condition as any).conditions.map(conditionToLoki) };
-    case 'not': {
-      const inner = conditionToLoki((condition as any).condition);
-      const negated: Record<string, any> = {};
-      for (const [key, val] of Object.entries(inner)) {
-        if (typeof val === 'object' && val !== null) {
-          negated[key] = { $not: val };
-        } else {
-          negated[key] = { $ne: val };
-        }
-      }
-      return negated;
+    case 'or': {
+      const children = (condition as { conditions: readonly Condition[] }).conditions.map((c) =>
+        conditionToLoki(c, negate),
+      );
+      const isAnd = (condition.type === 'and') !== negate;
+      return isAnd ? { $and: children } : { $or: children };
     }
+    case 'not':
+      return conditionToLoki((condition as { condition: Condition }).condition, !negate);
+    case 'exists':
+      throw new Error('exists clauses must be expanded before translation to Loki');
     default:
       throw new Error(`Unknown condition type: ${(condition as any).type}`);
   }
+}
+
+function whereToLoki(clause: WhereClause, negate: boolean): object {
+  const column = clause.column;
+
+  if (clause.operator === 'like' || clause.operator === 'notLike') {
+    // SQL: `NULL LIKE x` and `NULL NOT LIKE x` are both NULL (never match),
+    // whereas Loki's $regex would test the string "null" — guard explicitly.
+    const regex = likeToRegExp(String(clause.value));
+    const positive = (clause.operator === 'like') !== negate;
+    return {
+      $and: [
+        { [column]: { $ne: null } },
+        { [column]: positive ? { $regex: regex } : { $not: { $regex: regex } } },
+      ],
+    };
+  }
+
+  const op = operatorToLoki(clause.operator, clause.value);
+  return { [column]: negate ? { $not: op } : op };
+}
+
+/**
+ * SQL LIKE → anchored, case-insensitive RegExp.
+ * `%` matches any sequence, `_` any single character; everything else literal.
+ */
+function likeToRegExp(pattern: string): RegExp {
+  let source = '';
+  for (const char of pattern) {
+    if (char === '%') {
+      source += String.raw`[\s\S]*`;
+    } else if (char === '_') {
+      source += String.raw`[\s\S]`;
+    } else {
+      source += char.replaceAll(/[$()*+.?[\\\]^{|}]/g, String.raw`\$&`);
+    }
+  }
+  return new RegExp(`^${source}$`, 'i');
 }
 
 function operatorToLoki(op: ComparisonOperator, value: unknown): any {
@@ -571,12 +706,6 @@ function operatorToLoki(op: ComparisonOperator, value: unknown): any {
         $nin: Array.isArray(value)
           ? value.map((v) => (typeof v === 'boolean' ? (v ? 1 : 0) : v))
           : value,
-      };
-    case 'like':
-      return { $regex: new RegExp(String(value).replaceAll('%', '.*').replaceAll('_', '.'), 'i') };
-    case 'notLike':
-      return {
-        $not: { $regex: new RegExp(String(value).replaceAll('%', '.*').replaceAll('_', '.'), 'i') },
       };
     case 'between': {
       const [low, high] = value as [unknown, unknown];

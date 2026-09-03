@@ -40,4 +40,15 @@ internal object JSIInstaller {
 
     @JvmStatic
     external fun destroy()
+
+    /** Store a sync payload under `syncJsonId` for a later `adapter.applySyncJson(id)`. */
+    @JvmStatic
+    external fun provideSyncJson(
+        syncJsonId: Int,
+        json: ByteArray,
+    )
+
+    /** Drop a stored payload that will not be applied. */
+    @JvmStatic
+    external fun discardSyncJson(syncJsonId: Int): Boolean
 }

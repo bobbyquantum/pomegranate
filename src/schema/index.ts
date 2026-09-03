@@ -6,6 +6,7 @@ export type {
   NumberColumn,
   BooleanColumn,
   DateColumn,
+  JsonColumn,
   BelongsToDescriptor,
   HasManyDescriptor,
   RelationDescriptor,

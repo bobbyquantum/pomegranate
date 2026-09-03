@@ -63,6 +63,19 @@ class Database {
     /** Close the database. */
     void close();
 
+    // ─── Turbo sync ────────────────────────────────────────────────────
+
+    /**
+     * Import a sync payload that native code stored via syncjson::provide().
+     * `schema` is an optional JS object { table: [columns] } used to drop
+     * unknown tables/columns. Returns { timestamp, tables, inserted, deleted,
+     * skippedTables, skippedColumns }.
+     */
+    jsi::Object applySyncJson(int syncJsonId, const jsi::Value &schema, jsi::Runtime &rt);
+
+    /** Same as applySyncJson but the payload is passed as a JS string. */
+    jsi::Object applySyncJsonText(const std::string &json, const jsi::Value &schema, jsi::Runtime &rt);
+
    private:
     std::unique_ptr<SqliteDb> db_;
     std::mutex mutex_;
@@ -79,6 +92,9 @@ class Database {
 
     /** Finalize all cached statements. */
     void clearStmtCache();
+
+    /** Shared body of applySyncJson / applySyncJsonText. Caller holds no lock. */
+    jsi::Object importSyncJson(std::string &json, const jsi::Value &schema, jsi::Runtime &rt);
 };
 
 }  // namespace pomegranate

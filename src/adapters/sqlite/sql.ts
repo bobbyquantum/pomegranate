@@ -13,12 +13,80 @@ import type {
   AndClause,
   OrClause,
   NotClause,
+  ExistsClause,
   OrderByClause,
 } from '../../query/types';
-import type { DatabaseSchema, TableSchema } from '../../schema/types';
+import type { DatabaseSchema, TableColumnSchema, TableSchema } from '../../schema/types';
 import { sanitizeTableName, sanitizeColumnName } from '../../utils';
 
 // ─── CREATE TABLE ──────────────────────────────────────────────────────────
+
+/** SQLite storage type for a schema column type. */
+export function sqlTypeForColumn(type: TableColumnSchema['type']): string {
+  switch (type) {
+    case 'text':
+      return 'TEXT';
+    case 'number':
+      return 'REAL';
+    case 'boolean':
+      return 'INTEGER';
+    case 'date':
+      return 'REAL';
+    case 'json':
+      return 'TEXT';
+    default:
+      return 'TEXT';
+  }
+}
+
+/**
+ * Column definition shared by `CREATE TABLE` and `ALTER TABLE … ADD COLUMN`:
+ * optional → nullable `DEFAULT NULL`; required → `NOT NULL` with the type's default.
+ */
+export function columnDefinitionSQL(col: TableColumnSchema): string {
+  const name = sanitizeColumnName(col.name);
+  const sqlType = sqlTypeForColumn(col.type);
+  const nullable = col.isOptional ? '' : ' NOT NULL';
+  const defaultVal = col.isOptional ? ' DEFAULT NULL' : getDefaultClause(col.type);
+  return `"${name}" ${sqlType}${nullable}${defaultVal}`;
+}
+
+/**
+ * `ALTER TABLE … ADD COLUMN` for a schema column, with the same rules as
+ * `createTableSQL`. The one difference: SQLite refuses to add a `NOT NULL`
+ * column whose default is `NULL`, so a required `date` column gets `DEFAULT 0`.
+ */
+export function addColumnSQL(table: string, col: TableColumnSchema): string {
+  const tableName = sanitizeTableName(table);
+  let definition = columnDefinitionSQL(col);
+  if (!col.isOptional && col.type === 'date') {
+    definition = definition.replace(/ DEFAULT NULL$/, ' DEFAULT 0');
+  }
+  return `ALTER TABLE "${tableName}" ADD COLUMN ${definition}`;
+}
+
+/**
+ * `ALTER TABLE … ADD COLUMN` for the legacy `addColumn` migration step, which
+ * names a SQL type rather than a schema type. Nullability/default follow the
+ * same rules: optional → nullable, required → `NOT NULL` with `''` for text
+ * types and `0` for numeric ones.
+ */
+export function legacyAddColumnSQL(
+  table: string,
+  column: string,
+  columnType: string,
+  isOptional: boolean,
+): string {
+  const tableName = sanitizeTableName(table);
+  const name = sanitizeColumnName(column);
+  const sqlType = columnType.trim();
+  if (isOptional) {
+    return `ALTER TABLE "${tableName}" ADD COLUMN "${name}" ${sqlType} DEFAULT NULL`;
+  }
+  const isNumeric = /^(int|integer|real|float|double|numeric|bool|boolean|number)\b/i.test(sqlType);
+  const defaultVal = isNumeric ? '0' : "''";
+  return `ALTER TABLE "${tableName}" ADD COLUMN "${name}" ${sqlType} NOT NULL DEFAULT ${defaultVal}`;
+}
 
 export function createTableSQL(table: TableSchema): string {
   const tableName = sanitizeTableName(table.name);
@@ -26,29 +94,7 @@ export function createTableSQL(table: TableSchema): string {
     '"id" TEXT PRIMARY KEY NOT NULL',
     '"_status" TEXT NOT NULL DEFAULT \'created\'',
     '"_changed" TEXT NOT NULL DEFAULT \'\'',
-    ...table.columns.map((col) => {
-      const name = sanitizeColumnName(col.name);
-      let sqlType: string;
-      switch (col.type) {
-        case 'text':
-          sqlType = 'TEXT';
-          break;
-        case 'number':
-          sqlType = 'REAL';
-          break;
-        case 'boolean':
-          sqlType = 'INTEGER';
-          break;
-        case 'date':
-          sqlType = 'REAL';
-          break;
-        default:
-          sqlType = 'TEXT';
-      }
-      const nullable = col.isOptional ? '' : ' NOT NULL';
-      const defaultVal = col.isOptional ? ' DEFAULT NULL' : getDefaultClause(col.type);
-      return `"${name}" ${sqlType}${nullable}${defaultVal}`;
-    }),
+    ...table.columns.map(columnDefinitionSQL),
   ];
 
   const createSQL = `CREATE TABLE IF NOT EXISTS "${tableName}" (${columnDefs.join(', ')})`;
@@ -72,6 +118,7 @@ export function createTableSQL(table: TableSchema): string {
 function getDefaultClause(type: string): string {
   switch (type) {
     case 'text':
+    case 'json':
       return " DEFAULT ''";
     case 'number':
       return ' DEFAULT 0';
@@ -102,17 +149,13 @@ export function selectSQL(descriptor: QueryDescriptor): { sql: string; bindings:
 
   // WHERE
   if (descriptor.conditions.length > 0) {
-    const whereClause = conditionsToSQL(descriptor.conditions, bindings);
+    const whereClause = conditionsToSQL(descriptor.conditions, bindings, table);
     sql += ` WHERE ${whereClause}`;
   }
 
   // ORDER BY
   if (descriptor.orderBy.length > 0) {
-    const orderClauses = descriptor.orderBy.map((ob) => {
-      const col = sanitizeColumnName(ob.column);
-      return `"${col}" ${ob.order === 'desc' ? 'DESC' : 'ASC'}`;
-    });
-    sql += ` ORDER BY ${orderClauses.join(', ')}`;
+    sql += ` ORDER BY ${orderBySQL(descriptor.orderBy, table)}`;
   }
 
   // LIMIT / OFFSET
@@ -137,7 +180,7 @@ export function countSQL(descriptor: QueryDescriptor): { sql: string; bindings: 
   let sql = `SELECT COUNT(*) as count FROM "${table}"`;
 
   if (descriptor.conditions.length > 0) {
-    const whereClause = conditionsToSQL(descriptor.conditions, bindings);
+    const whereClause = conditionsToSQL(descriptor.conditions, bindings, table);
     sql += ` WHERE ${whereClause}`;
   }
 
@@ -162,7 +205,7 @@ export function searchSQL(descriptor: SearchDescriptor): {
     const col = sanitizeColumnName(field);
     bindings.push(pattern);
     countBindings.push(pattern);
-    return `"${col}" LIKE ?`;
+    return `"${table}"."${col}" LIKE ?`;
   });
 
   const searchWhere = `(${searchConditions.join(' OR ')})`;
@@ -171,7 +214,7 @@ export function searchSQL(descriptor: SearchDescriptor): {
   let extraWhere = '';
   if (descriptor.conditions.length > 0) {
     const extraBindings: unknown[] = [];
-    extraWhere = ` AND ${conditionsToSQL(descriptor.conditions, extraBindings)}`;
+    extraWhere = ` AND ${conditionsToSQL(descriptor.conditions, extraBindings, table)}`;
     bindings.push(...extraBindings);
     countBindings.push(...extraBindings);
   }
@@ -183,11 +226,7 @@ export function searchSQL(descriptor: SearchDescriptor): {
   let sql = `SELECT * FROM "${table}" WHERE ${searchWhere}${extraWhere}`;
 
   if (descriptor.orderBy.length > 0) {
-    const orderClauses = descriptor.orderBy.map((ob) => {
-      const col = sanitizeColumnName(ob.column);
-      return `"${col}" ${ob.order === 'desc' ? 'DESC' : 'ASC'}`;
-    });
-    sql += ` ORDER BY ${orderClauses.join(', ')}`;
+    sql += ` ORDER BY ${orderBySQL(descriptor.orderBy, table)}`;
   }
 
   sql += ' LIMIT ? OFFSET ?';
@@ -241,28 +280,64 @@ export function deleteSQL(table: string, id: string): { sql: string; bindings: u
 }
 
 // ─── Condition helpers ─────────────────────────────────────────────────────
+//
+// Every column reference is qualified with its table ("table"."column") so
+// that EXISTS sub-queries can refer to inner and outer columns without
+// ambiguity, even when both tables share column names.
 
-function conditionsToSQL(conditions: readonly Condition[], bindings: unknown[]): string {
-  return conditions.map((c) => conditionToSQL(c, bindings)).join(' AND ');
+function orderBySQL(orderBy: readonly OrderByClause[], table: string): string {
+  return orderBy
+    .map((ob) => `${qualify(table, ob.column)} ${ob.order === 'desc' ? 'DESC' : 'ASC'}`)
+    .join(', ');
 }
 
-function conditionToSQL(condition: Condition, bindings: unknown[]): string {
+function qualify(table: string, column: string): string {
+  return `"${table}"."${sanitizeColumnName(column)}"`;
+}
+
+function conditionsToSQL(
+  conditions: readonly Condition[],
+  bindings: unknown[],
+  table: string,
+): string {
+  return conditions.map((c) => conditionToSQL(c, bindings, table)).join(' AND ');
+}
+
+function conditionToSQL(condition: Condition, bindings: unknown[], table: string): string {
   switch (condition.type) {
     case 'where':
-      return whereToSQL(condition, bindings);
+      return whereToSQL(condition, bindings, table);
     case 'and':
-      return `(${(condition as AndClause).conditions.map((c) => conditionToSQL(c, bindings)).join(' AND ')})`;
+      return `(${(condition as AndClause).conditions.map((c) => conditionToSQL(c, bindings, table)).join(' AND ')})`;
     case 'or':
-      return `(${(condition as OrClause).conditions.map((c) => conditionToSQL(c, bindings)).join(' OR ')})`;
+      return `(${(condition as OrClause).conditions.map((c) => conditionToSQL(c, bindings, table)).join(' OR ')})`;
     case 'not':
-      return `NOT (${conditionToSQL((condition as NotClause).condition, bindings)})`;
+      return `NOT (${conditionToSQL((condition as NotClause).condition, bindings, table)})`;
+    case 'exists':
+      return existsToSQL(condition as ExistsClause, bindings, table);
     default:
       throw new Error(`Unknown condition type: ${(condition as any).type}`);
   }
 }
 
-function whereToSQL(clause: WhereClause, bindings: unknown[]): string {
-  const col = `"${sanitizeColumnName(clause.column)}"`;
+/**
+ * EXISTS (SELECT 1 FROM "inner" WHERE "inner"."fc" = "outer"."lc"
+ *         AND "inner"."_status" != 'deleted' AND (<inner conditions>))
+ */
+function existsToSQL(clause: ExistsClause, bindings: unknown[], outerTable: string): string {
+  const inner = sanitizeTableName(clause.table);
+  let sql =
+    `EXISTS (SELECT 1 FROM "${inner}" WHERE ` +
+    `${qualify(inner, clause.foreignColumn)} = ${qualify(outerTable, clause.localColumn)}` +
+    ` AND ${qualify(inner, '_status')} != 'deleted'`;
+  if (clause.conditions.length > 0) {
+    sql += ` AND (${conditionsToSQL(clause.conditions, bindings, inner)})`;
+  }
+  return sql + ')';
+}
+
+function whereToSQL(clause: WhereClause, bindings: unknown[], table: string): string {
+  const col = qualify(table, clause.column);
 
   switch (clause.operator) {
     case 'eq':

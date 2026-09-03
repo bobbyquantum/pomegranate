@@ -108,14 +108,18 @@ observable.subscribe((posts) => {
 });
 ```
 
+Live queries emit once on subscribe and then only when the matching record ids (or their order) change. Pass `{ columns: [...] }` to `observeQuery` — or use `observeQueryWithColumns` — to also emit when those columns change on a matched record. Updates that cannot affect the result are filtered out before the query is re-run; see [Queries](./queries#observing-queries).
+
 ## Collection Observation
 
 Watch all changes in a collection:
 
 ```ts
-db.get(Post).changes.subscribe((change) => {
-  console.log(change.type, change.record.id);
-  // type: 'created' | 'updated' | 'destroyed'
+db.get(Post).changes$.subscribe((change) => {
+  console.log(change.type, change.record.id, change.columns);
+  // type: 'created' | 'updated' | 'deleted'
+  // columns: the column names changed by an update (absent for created/deleted
+  //          and for batch/sync notifications)
 });
 ```
 

@@ -16,7 +16,7 @@
  */
 
 import type { StorageAdapter } from '../adapters/types';
-import type { EncryptionConfig } from '../adapters/types';
+import type { EncryptionConfig, Migration, MigrationEvents } from '../adapters/types';
 import type { ModelSchema, DatabaseSchema, TableColumnSchema } from '../schema/types';
 import type { SyncConfig, SyncLog, SyncState } from '../sync/types';
 import { Collection } from '../collection/Collection';
@@ -25,6 +25,7 @@ import type { ModelStatic, ModelDatabaseRef } from '../model/Model';
 import type { BatchOperation } from '../query/types';
 import { BehaviorSubject, Subject } from '../observable/Subject';
 import type { Observable } from '../observable/Subject';
+import { resolveMigrationChain } from './migrations';
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -33,6 +34,14 @@ export interface DatabaseConfig {
   readonly models: ModelStatic[];
   readonly schemaVersion?: number;
   readonly encryption?: EncryptionConfig;
+  /**
+   * Migrations from every shipped schema version up to `schemaVersion`.
+   * `initialize()` runs the ones an existing database still needs; the sync
+   * engine reads them to build the pull `migration` argument.
+   */
+  readonly migrations?: readonly Migration[];
+  /** Callbacks around the migration run performed by `initialize()`. */
+  readonly migrationEvents?: MigrationEvents;
 }
 
 // ─── Database Events ───────────────────────────────────────────────────
@@ -80,15 +89,47 @@ export class Database implements ModelDatabaseRef {
 
   /**
    * Initialize the database. Must be called before any operations.
-   * Creates tables if they don't exist.
+   *
+   * A fresh database gets its tables created at `schemaVersion`. An existing
+   * one at an older version is migrated with `config.migrations`, which must
+   * form an unbroken one-step chain from the stored version to
+   * `schemaVersion`; otherwise this throws and nothing is changed. Opening a
+   * database at a *newer* version than the app's schema is refused.
    */
   async initialize(): Promise<void> {
     if (this._initialized) return;
 
     const dbSchema = this._buildDatabaseSchema();
     await this._adapter.initialize(dbSchema);
+    await this._migrateIfNeeded();
     this._initialized = true;
     this._events$.next({ type: 'initialized' });
+  }
+
+  private async _migrateIfNeeded(): Promise<void> {
+    const stored = await this._adapter.getSchemaVersion();
+    const target = this._schemaVersion;
+
+    // 0 = fresh install: the adapter has just created every table at `target`.
+    if (stored === 0 || stored === target) return;
+
+    if (stored > target) {
+      throw new Error(
+        `Database schema version ${stored} is newer than the app's schema version ${target}. ` +
+          'Downgrading is not supported.',
+      );
+    }
+
+    const chain = resolveMigrationChain(this.config.migrations ?? [], stored, target);
+    const events = this.config.migrationEvents;
+    events?.onStart?.(stored, target);
+    try {
+      await this._adapter.migrate(chain);
+    } catch (error) {
+      events?.onError?.(error, stored, target);
+      throw error;
+    }
+    events?.onSuccess?.(stored, target);
   }
 
   private _buildDatabaseSchema(): DatabaseSchema {
@@ -151,10 +192,27 @@ export class Database implements ModelDatabaseRef {
    * Execute a write transaction.
    *
    * All mutations (create, update, delete) must happen inside a write() call.
-   * Write calls are serialized — only one runs at a time.
+   * Write calls are serialized — only one runs at a time. A `write()` issued
+   * from inside the running writer (a helper that wraps its own mutations in
+   * `write()`, called from another `write()`) is re-entrant: it runs inline as
+   * part of the outer transaction instead of queueing behind it, which would
+   * deadlock.
+   *
+   * Re-entrancy is detected with a flag: there is one writer at a time, and a
+   * queued writer only starts on a microtask, so `write()` calls issued in the
+   * same tick still queue in order. The one case the flag cannot tell apart is
+   * a `write()` from an unrelated task that lands while the writer is awaiting
+   * asynchronous adapter I/O — it joins the running transaction instead of
+   * waiting for it.
    */
   async write<T>(fn: () => Promise<T>): Promise<T> {
     this._ensureInitialized();
+
+    if (this._isInWriter) {
+      // Nested call from the running writer: the adapter's writeTransaction
+      // already treats nested calls as part of the outer transaction.
+      return fn();
+    }
 
     return new Promise<T>((resolve, reject) => {
       this._writeQueue.push(async () => {
@@ -180,7 +238,9 @@ export class Database implements ModelDatabaseRef {
         }
       });
 
-      this._processWriteQueue();
+      // Start on a microtask so that writes issued back-to-back in one tick are
+      // all queued before the first one sets the in-writer flag.
+      void Promise.resolve().then(() => this._processWriteQueue());
     });
   }
 
@@ -313,12 +373,15 @@ export class Database implements ModelDatabaseRef {
 
   /**
    * Completely reset the database — drops all data.
+   *
+   * The database is left uninitialized: call `initialize()` again to recreate
+   * the tables (at `schemaVersion`) before using it. Safe to call from inside
+   * `write()`; the re-initialisation then joins the running transaction.
    */
   async reset(): Promise<void> {
     await this._adapter.reset();
-    for (const collection of this._collections.values()) {
-      collection._clearCache();
-    }
+    this._clearAllCaches();
+    this._initialized = false;
     this._events$.next({ type: 'reset' });
   }
 
@@ -363,5 +426,27 @@ export class Database implements ModelDatabaseRef {
    */
   get tables(): string[] {
     return Array.from(this._collections.keys());
+  }
+
+  /** The schema version this database was configured with. */
+  get schemaVersion(): number {
+    return this._schemaVersion;
+  }
+
+  /** The migrations this database was configured with (empty if none). */
+  get migrations(): readonly Migration[] {
+    return this.config.migrations ?? [];
+  }
+
+  /** The compiled adapter-level schema (tables and columns) for this database. */
+  get schema(): DatabaseSchema {
+    return this._buildDatabaseSchema();
+  }
+
+  /** @internal Drop every collection's record cache (after a bulk import). */
+  _clearAllCaches(): void {
+    for (const collection of this._collections.values()) {
+      collection._clearCache();
+    }
   }
 }

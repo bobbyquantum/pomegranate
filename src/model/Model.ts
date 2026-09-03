@@ -36,7 +36,8 @@ import { BelongsToRelationImpl, HasManyRelationImpl } from './Relation';
 /** Minimal interface for what a Collection provides to a Model */
 export interface ModelCollectionRef {
   readonly table: string;
-  _update(id: string, raw: Partial<RawRecord>): Promise<void>;
+  /** `changedColumns` are the user-facing column names touched by the patch */
+  _update(id: string, raw: Partial<RawRecord>, changedColumns?: readonly string[]): Promise<void>;
   _delete(id: string): Promise<void>;
   _destroyPermanently(id: string): Promise<void>;
   _getDatabase(): ModelDatabaseRef;
@@ -57,13 +58,37 @@ export interface ModelDatabaseRef extends RelationDatabaseRef {
 
 // ─── Model class ───────────────────────────────────────────────────────────
 
+/**
+ * Association to another table, keyed by that table's name (WatermelonDB shape).
+ * Used by `QueryBuilder.on()` when the schema declares the foreign key as an
+ * ordinary column rather than `m.belongsTo()` / `m.hasMany()`.
+ */
+export type ModelAssociation =
+  | { readonly type: 'belongs_to'; readonly key: string }
+  | { readonly type: 'has_many'; readonly foreignKey: string };
+
+export type ModelAssociations = Record<string, ModelAssociation>;
+
 export type ModelStatic<S extends ModelSchema = ModelSchema> = {
   new (collection: ModelCollectionRef, raw: RawRecord): Model<S>;
   schema: S;
+  associations?: ModelAssociations;
 };
 
 export class Model<S extends ModelSchema = ModelSchema> {
   static schema: ModelSchema;
+
+  /**
+   * Optional associations to other tables for `QueryBuilder.on()`, keyed by
+   * related table name. Schema relations (`m.belongsTo`/`m.hasMany`) are
+   * consulted first; this covers FKs declared as plain columns.
+   *
+   *   static associations = {
+   *     posts: { type: 'belongs_to', key: 'post_id' },
+   *     replies: { type: 'has_many', foreignKey: 'comment_id' },
+   *   } satisfies ModelAssociations;
+   */
+  static associations?: ModelAssociations;
 
   /** The record id */
   readonly id: string;
@@ -234,7 +259,7 @@ export class Model<S extends ModelSchema = ModelSchema> {
    * Update this record with a patch of field values.
    * Must be called inside `db.write()`.
    */
-  async update(patch: Record<string, unknown>): Promise<void> {
+  async update(patch: Record<string, unknown>): Promise<this> {
     this.collection._getDatabase()._ensureInWriter('Model.update()');
 
     const schema = (this.constructor as typeof Model).schema;
@@ -272,8 +297,9 @@ export class Model<S extends ModelSchema = ModelSchema> {
     }
     rawUpdates._changed = allChanged.join(',');
 
-    await this.collection._update(this.id, rawUpdates);
+    await this.collection._update(this.id, rawUpdates, changedColumns);
     this._setRaw(rawUpdates);
+    return this;
   }
 
   /**
@@ -332,12 +358,18 @@ function serializeValue(col: ResolvedColumn, value: unknown): unknown {
       return dateToTimestamp(value as Date | number);
     case 'boolean':
       return value ? 1 : 0;
+    case 'json':
+      // Strings are assumed to be already-serialized JSON
+      return typeof value === 'string' ? value : JSON.stringify(value);
     default:
       return value;
   }
 }
 
 function deserializeValue(col: ResolvedColumn, rawValue: unknown): unknown {
+  if (col.type === 'json') {
+    return deserializeJson(col, rawValue);
+  }
   if (rawValue === null || rawValue === undefined) {
     return null;
   }
@@ -349,6 +381,22 @@ function deserializeValue(col: ResolvedColumn, rawValue: unknown): unknown {
     default:
       return rawValue;
   }
+}
+
+/**
+ * JSON columns: parse strings (invalid JSON → null), pass through values that
+ * are already objects (Loki may hold them), then always run the sanitizer.
+ */
+function deserializeJson(col: ResolvedColumn, rawValue: unknown): unknown {
+  let parsed: unknown = rawValue ?? null;
+  if (typeof rawValue === 'string') {
+    try {
+      parsed = JSON.parse(rawValue);
+    } catch {
+      parsed = null;
+    }
+  }
+  return col.sanitizer ? col.sanitizer(parsed) : parsed;
 }
 
 // ─── Create a raw record from a schema + patch ────────────────────────────
@@ -376,6 +424,7 @@ export function createRawRecord(
       // Default zero-values
       switch (col.type) {
         case 'text':
+        case 'json':
           raw[col.columnName] = '';
           break;
         case 'number':

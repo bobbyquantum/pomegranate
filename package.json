@@ -1,6 +1,6 @@
 {
   "name": "pomegranate-db",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Reactive offline-first database with sync support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,6 +12,8 @@
     "native/shared/*.h",
     "native/shared/sqlite3/sqlite3.c",
     "native/shared/sqlite3/sqlite3.h",
+    "native/shared/simdjson/simdjson.cpp",
+    "native/shared/simdjson/simdjson.h",
     "native/android-jsi/src/",
     "native/android-jsi/build.gradle",
     "native/android-jsi/CMakeLists.txt",
@@ -56,6 +58,14 @@
     "./native-sqlite": {
       "types": "./dist/adapters/native-sqlite/index.d.ts",
       "default": "./dist/adapters/native-sqlite/index.js"
+    },
+    "./watermelon": {
+      "types": "./dist/watermelon/index.d.ts",
+      "default": "./dist/watermelon/index.js"
+    },
+    "./watermelon/impl": {
+      "types": "./dist/watermelon/index.d.ts",
+      "default": "./dist/watermelon/index.js"
     }
   },
   "scripts": {
@@ -71,6 +81,9 @@
     "test:android": "./scripts/test-android",
     "test:android:expo": "./scripts/test-android-expo",
     "setup:sqlite": "./scripts/setup-sqlite",
+    "setup:simdjson": "./scripts/setup-simdjson",
+    "setup:native": "./scripts/setup-sqlite && ./scripts/setup-simdjson",
+    "bench:turbo": "./native/bench/build.sh",
     "docs": "cd docs-website && npm start",
     "docs:build": "cd docs-website && npm run build",
     "lint": "eslint src/",

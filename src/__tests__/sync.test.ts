@@ -426,7 +426,8 @@ describe('Sync Engine', () => {
       expect(conflictCalled).toBe(true);
       const found = await db._adapter.findById('tasks', taskId);
       expect(found!.title).toBe('Local edit');
-      expect(found!.done).toBe(true);
+      // Booleans in the pull payload are stored as 0/1, like the native importer does.
+      expect(found!.done).toBe(1);
       expect(found!.priority).toBe(5);
     });
 

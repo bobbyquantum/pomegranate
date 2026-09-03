@@ -21,7 +21,17 @@ m.text()          // string column
 m.number()        // numeric column
 m.boolean()       // boolean column (stored as 0/1 in SQLite)
 m.date()          // date column (stored as epoch milliseconds)
+m.json()          // JSON column (stored as serialized TEXT, parsed on read)
 ```
+
+`m.json()` serializes objects/arrays with `JSON.stringify` on write and parses them on read; invalid or missing JSON reads as `null`. Pass a type parameter and an optional sanitizer to validate untrusted data (the sanitizer always runs, receiving the parsed value or `null`):
+
+```ts
+settings: m.json<Settings>('settings', (raw) => (isSettings(raw) ? raw : defaultSettings)),
+tags: m.json<string[]>((raw) => (Array.isArray(raw) ? raw.filter(isString) : [])),
+```
+
+Storage rules are those of a text column: non-optional JSON columns are `NOT NULL` and default to `''`, which reads as `null` until set.
 
 ### Column Options
 

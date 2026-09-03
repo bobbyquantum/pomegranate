@@ -29,6 +29,9 @@ const sidebars = {
     'Sync': [
       'sync',
     ],
+    'Migrating': [
+      'watermelon-compat',
+    ],
     'Advanced': [
       'advanced/encryption',
       'advanced/migrations',

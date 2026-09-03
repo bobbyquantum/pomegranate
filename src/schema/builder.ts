@@ -21,6 +21,7 @@ import type {
   NumberColumn,
   BooleanColumn,
   DateColumn,
+  JsonColumn,
   BelongsToDescriptor,
   HasManyDescriptor,
   SchemaFields,
@@ -86,6 +87,7 @@ function resolveField(
       isOptional: desc.isOptional,
       isIndexed: desc.isIndexed,
       defaultValue: desc.defaultValue,
+      sanitizer: (desc as JsonColumn).sanitizer,
     };
     return { column: col };
   }
@@ -133,6 +135,22 @@ function makeColumn<T extends ColumnDescriptor>(
   } as unknown as T);
 }
 
+function jsonColumn<T = unknown>(sanitizer: (raw: unknown) => T): ColumnBuilder<JsonColumn<T>>;
+function jsonColumn<T = unknown>(
+  columnName?: string,
+  sanitizer?: (raw: unknown) => T,
+): ColumnBuilder<JsonColumn<T>>;
+function jsonColumn<T = unknown>(
+  columnNameOrSanitizer?: string | ((raw: unknown) => T),
+  maybeSanitizer?: (raw: unknown) => T,
+): ColumnBuilder<JsonColumn<T>> {
+  const columnName = typeof columnNameOrSanitizer === 'string' ? columnNameOrSanitizer : null;
+  const sanitizer =
+    typeof columnNameOrSanitizer === 'function' ? columnNameOrSanitizer : maybeSanitizer;
+  const builder = makeColumn<JsonColumn<T>>('json', columnName);
+  return sanitizer ? new ColumnBuilder({ ...builder.descriptor, sanitizer }) : builder;
+}
+
 /**
  * Public schema builder API — the `m` object.
  */
@@ -156,6 +174,17 @@ export const m = {
   date(columnName?: string): ColumnBuilder<DateColumn> {
     return makeColumn<DateColumn>('date', columnName ?? null);
   },
+
+  /**
+   * JSON column (stored as a serialized string; parsed on read).
+   *
+   * An optional sanitizer receives the parsed value (or `null` when the raw
+   * value is missing or not valid JSON) and returns the value exposed by
+   * `getField()` — use it to validate/normalise untrusted data.
+   *
+   *   settings: m.json<Settings>('settings', (raw) => isSettings(raw) ? raw : defaults)
+   */
+  json: jsonColumn,
 
   /** Belongs-to relation (many-to-one). Adds a foreign key column. */
   belongsTo<S extends ModelSchema>(

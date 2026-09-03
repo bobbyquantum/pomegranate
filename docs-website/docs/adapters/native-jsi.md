@@ -102,6 +102,18 @@ PRAGMA temp_store = MEMORY;
 PRAGMA cache_size = -8000;  -- 8 MB
 ```
 
+## Turbo Sync
+
+The native driver implements `applySyncJson`, so a first sync with `unsafeTurbo: true` parses the pull payload in C++ (simdjson) and writes it straight into SQLite in one transaction. Native download code can hand the bytes over without touching JS:
+
+- iOS: `pomegranateProvideSyncJson(int32_t id, NSData *json, NSError **error)` from `PomegranateSyncJson.h`
+- Android: `com.pomegranate.jsi.PomegranateSyncJson.provide(id: Int, json: ByteArray)`
+- JS: `provideSyncJson(id, text)` from `pomegranate-db/native-sqlite`
+
+Then `pullChanges: async () => ({ syncJsonId: id })`. See [Sync → Turbo Sync](../sync#turbo-sync-first-sync-native-import) for the full contract.
+
+The importer needs the simdjson single-header build in `native/shared/simdjson/`; the npm package ships it, and a source checkout gets it from `./scripts/setup-simdjson`.
+
 ## Limitations
 
 - **Android only** (iOS support planned)

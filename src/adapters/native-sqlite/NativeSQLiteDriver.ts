@@ -20,6 +20,7 @@
  */
 
 import type { SQLiteDriver } from '../sqlite/SQLiteAdapter';
+import type { TurboSyncResult, TurboSyncSource } from '../../sync/types';
 
 // ─── JSI Bridge Types ─────────────────────────────────────────────────────
 
@@ -31,12 +32,46 @@ interface NativeJSIAdapter {
   execute(sql: string, args: unknown[]): void;
   query(sql: string, args: unknown[]): Record<string, unknown>[];
   executeBatch(commands: Array<{ sql: string; args: unknown[] }>): number;
+  /** Turbo sync: import the payload stored under `syncJsonId` (see provideSyncJson). */
+  applySyncJson(syncJsonId: number, tableColumns?: Record<string, string[]>): TurboSyncResult;
+  /** Turbo sync: import a payload passed as a JS string. */
+  applySyncJsonText(json: string, tableColumns?: Record<string, string[]>): TurboSyncResult;
   close(): void;
 }
 
 declare global {
   // Installed by C++ via Database::install()
   var nativePomegranateCreateAdapter: ((dbName: string) => NativeJSIAdapter) | undefined;
+  var nativePomegranateProvideSyncJson: ((syncJsonId: number, json: string) => void) | undefined;
+  var nativePomegranateDiscardSyncJson: ((syncJsonId: number) => boolean) | undefined;
+}
+
+// ─── Turbo sync store (JS side) ───────────────────────────────────────────
+
+/**
+ * Store a sync payload in native memory under `syncJsonId`, to be imported by
+ * `db.sync({ unsafeTurbo: true, pullChanges: async () => ({ syncJsonId }) })`.
+ *
+ * This is the JS entry point; native download modules should call the
+ * platform API instead (`pomegranateProvideSyncJson` on iOS,
+ * `PomegranateSyncJson.provide` on Android) so the bytes never cross into JS.
+ * Requires the JSI binding to be installed.
+ */
+export function provideSyncJson(syncJsonId: number, json: string): void {
+  if (typeof globalThis.nativePomegranateProvideSyncJson !== 'function') {
+    throw new TypeError(
+      'PomegranateDB JSI binding is not installed — open a native-sqlite database first.',
+    );
+  }
+  globalThis.nativePomegranateProvideSyncJson(syncJsonId, json);
+}
+
+/** Drop a payload stored with provideSyncJson. Returns true if one existed. */
+export function discardSyncJson(syncJsonId: number): boolean {
+  if (typeof globalThis.nativePomegranateDiscardSyncJson !== 'function') {
+    return false;
+  }
+  return globalThis.nativePomegranateDiscardSyncJson(syncJsonId);
 }
 
 // ─── Driver Config ────────────────────────────────────────────────────────
@@ -156,6 +191,18 @@ export function createNativeSQLiteDriver(config?: NativeSQLiteDriverConfig): SQL
       db.executeBatch(
         commands.map(([sql, bindings]) => ({ sql, args: bindings })),
       );
+    },
+
+    async applySyncJson(
+      source: TurboSyncSource,
+      tableColumns: Record<string, string[]>,
+    ): Promise<TurboSyncResult> {
+      const db = requireAdapter();
+      // Single JSI call: C++ parses the payload with simdjson and writes every
+      // row inside one transaction. The JS thread never sees the records.
+      return 'syncJsonId' in source
+        ? db.applySyncJson(source.syncJsonId, tableColumns)
+        : db.applySyncJsonText(source.syncJson, tableColumns);
     },
 
     async close(): Promise<void> {
