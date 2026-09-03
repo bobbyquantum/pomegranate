@@ -458,6 +458,20 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
   }
 
   /**
+   * Apply raw updates to an already-instantiated record so it reflects a
+   * change made directly through the adapter (e.g. marked synced). No-op when
+   * the record is not cached; the record's own observable emits.
+   */
+  _refreshCached(id: string, updates: Partial<RawRecord>): void {
+    this._cache.get(id)?._setRaw(updates);
+  }
+
+  /** Drop a record from the cache (after it was destroyed through the adapter). */
+  _evictCached(id: string): void {
+    this._cache.delete(id);
+  }
+
+  /**
    * Notify external change (used by sync/batch).
    * Omit `columns` when the changed columns are unknown — live queries then
    * re-run unconditionally.

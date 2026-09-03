@@ -33,6 +33,7 @@
  */
 
 import type { Database } from '../database/Database';
+import type { Collection } from '../collection/Collection';
 import { migrationSyncInfo } from '../database/migrations';
 import type { RawRecord } from '../schema/types';
 import { mergeRemoteIntoLocal } from '../adapters/remoteMerge';
@@ -404,13 +405,28 @@ async function markLocalChangesAsSynced(
       const currentRaw = nowById.get(raw.id);
       if (currentRaw && rawEquals(raw, currentRaw)) toMark.push(raw.id);
     }
-    if (toMark.length > 0) await db._adapter.markAsSynced(table, toMark);
+    const collection = collectionFor(db, table);
+    if (toMark.length > 0) {
+      await db._adapter.markAsSynced(table, toMark);
+      // Keep already-loaded instances in step with the adapter (WatermelonDB
+      // updates `record.syncStatus` after a push).
+      for (const id of toMark) collection?._refreshCached(id, { _status: 'synced', _changed: '' });
+    }
 
     const stillDeleted = new Set(now.deleted);
     for (const id of before.deleted) {
       if (rejected.has(id) || !stillDeleted.has(id)) continue;
       await db._adapter.destroyPermanently(table, id);
+      collection?._evictCached(id);
     }
+  }
+}
+
+function collectionFor(db: Database, table: string): Collection | null {
+  try {
+    return db.collection(table);
+  } catch {
+    return null; // table without a registered collection
   }
 }
 
