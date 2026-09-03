@@ -31,8 +31,10 @@ export class Query<T extends Model = Model> {
   }
 
   /** A new query with more clauses appended. */
-  extend(...clauses: Clause[]): Query<T> {
-    return new Query<T>(this.collection, [...this.clauses, ...clauses]);
+  extend(...clauses: Array<Clause | readonly Clause[]>): Query<T> {
+    // WatermelonDB accepts nested clause arrays (e.g. `query(clausesArray)`).
+    const flat = clauses.flat() as Clause[];
+    return new Query<T>(this.collection, [...this.clauses, ...flat]);
   }
 
   async fetch(): Promise<T[]> {

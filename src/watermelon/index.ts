@@ -23,7 +23,8 @@ export type { Associations, ModelAssociation, Mutator } from './Model';
 export { Collection } from './Collection';
 export type { CollectionChangeSet, CollectionChangeType } from './Collection';
 export { Query } from './Query';
-export { Q, applyClauses, applyConditions, isComparison } from './Q';
+export * as Q from './QNamespace';
+export { applyClauses, applyConditions, isComparison } from './Q';
 export type {
   Clause,
   Where,

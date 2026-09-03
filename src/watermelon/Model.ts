@@ -109,14 +109,16 @@ export class Model<S extends ModelSchema = ModelSchema> extends CoreModel<S> {
    * Update this record. Accepts a WatermelonDB mutator (`record => { … }`)
    * or a core-style patch keyed by field name. Must be inside `write()`.
    */
-  async update(mutatorOrPatch?: Mutator<this> | Record<string, unknown>): Promise<void> {
+  /** Like WatermelonDB, resolves to the updated record itself. */
+  async update(mutatorOrPatch?: Mutator<this> | Record<string, unknown>): Promise<this> {
     this.collection._getDatabase()._ensureInWriter('Model.update()');
     if (typeof mutatorOrPatch === 'function') {
       const patch = await this._captureMutations(mutatorOrPatch);
       await super.update(patch);
-      return;
+      return this;
     }
     await super.update(mutatorOrPatch ?? {});
+    return this;
   }
 
   // ─── Observation ───────────────────────────────────────────────────────

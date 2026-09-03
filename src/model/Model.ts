@@ -259,7 +259,7 @@ export class Model<S extends ModelSchema = ModelSchema> {
    * Update this record with a patch of field values.
    * Must be called inside `db.write()`.
    */
-  async update(patch: Record<string, unknown>): Promise<void> {
+  async update(patch: Record<string, unknown>): Promise<this> {
     this.collection._getDatabase()._ensureInWriter('Model.update()');
 
     const schema = (this.constructor as typeof Model).schema;
@@ -299,6 +299,7 @@ export class Model<S extends ModelSchema = ModelSchema> {
 
     await this.collection._update(this.id, rawUpdates, changedColumns);
     this._setRaw(rawUpdates);
+    return this;
   }
 
   /**

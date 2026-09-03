@@ -50,8 +50,10 @@ export class Collection<T extends Model = Model> implements ModelCollectionRef {
     return this.database;
   }
 
-  query(...clauses: Clause[]): Query<T> {
-    return new Query<T>(this, clauses);
+  query(...clauses: Array<Clause | readonly Clause[]>): Query<T> {
+    // WatermelonDB accepts nested clause arrays (e.g. `query(clausesArray)`).
+    const flat = clauses.flat() as Clause[];
+    return new Query<T>(this, flat);
   }
 
   /** Find a record by id; rejects when it does not exist (or is deleted). */
