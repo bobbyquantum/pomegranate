@@ -136,7 +136,7 @@ export class LokiExecutor {
       const strategy = this._config.saveStrategy ?? 'immediate';
       if (strategy === 'auto') {
         options.autosave = true;
-        options.autosaveinterval = this._config.autosaveInterval ?? 500;
+        options.autosaveInterval = this._config.autosaveInterval ?? 500;
       }
     }
 
