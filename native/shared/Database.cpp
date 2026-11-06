@@ -6,6 +6,9 @@
 #include <sstream>
 #include <vector>
 
+#include "SyncJsonImporter.h"
+#include "SyncJsonStore.h"
+
 namespace pomegranate {
 
 using namespace facebook;
@@ -202,6 +205,80 @@ int Database::executeBatch(const jsi::Array &commands, jsi::Runtime &rt) {
     return totalChanges;
 }
 
+// ─── Turbo sync ──────────────────────────────────────────────────────────────
+
+namespace {
+
+/** Convert an optional JS { table: [columns] } object into TableColumns. */
+bool readSchema(const jsi::Value &schema, jsi::Runtime &rt, syncjson::TableColumns &out) {
+    if (schema.isUndefined() || schema.isNull()) {
+        return false;
+    }
+    if (!schema.isObject()) {
+        throw jsi::JSError(rt, "applySyncJson: schema must be an object of { table: [columns] }");
+    }
+    jsi::Object object = schema.getObject(rt);
+    jsi::Array names = object.getPropertyNames(rt);
+    size_t count = names.size(rt);
+    for (size_t i = 0; i < count; i++) {
+        std::string table = names.getValueAtIndex(rt, i).getString(rt).utf8(rt);
+        jsi::Value columnsValue = object.getProperty(rt, table.c_str());
+        if (!columnsValue.isObject() || !columnsValue.getObject(rt).isArray(rt)) {
+            throw jsi::JSError(rt, "applySyncJson: schema." + table + " must be an array of column names");
+        }
+        jsi::Array columns = columnsValue.getObject(rt).getArray(rt);
+        std::unordered_set<std::string> set;
+        size_t columnCount = columns.size(rt);
+        for (size_t c = 0; c < columnCount; c++) {
+            set.insert(columns.getValueAtIndex(rt, c).getString(rt).utf8(rt));
+        }
+        out.emplace(std::move(table), std::move(set));
+    }
+    return true;
+}
+
+}  // namespace
+
+jsi::Object Database::importSyncJson(std::string &json, const jsi::Value &schema, jsi::Runtime &rt) {
+    syncjson::TableColumns tableColumns;
+    bool hasSchema = readSchema(schema, rt, tableColumns);
+
+    syncjson::ImportStats stats;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!db_) {
+            throw jsi::JSError(rt, "PomegranateDB: database is closed");
+        }
+        try {
+            stats = syncjson::importSyncJson(db_->getHandle(), json, hasSchema ? &tableColumns : nullptr);
+        } catch (const std::exception &error) {
+            throw jsi::JSError(rt, error.what());
+        }
+    }
+
+    jsi::Object result(rt);
+    result.setProperty(rt, "timestamp", stats.hasTimestamp ? jsi::Value(stats.timestamp) : jsi::Value::null());
+    result.setProperty(rt, "tables", jsi::Value(static_cast<double>(stats.tables)));
+    result.setProperty(rt, "inserted", jsi::Value(static_cast<double>(stats.inserted)));
+    result.setProperty(rt, "deleted", jsi::Value(static_cast<double>(stats.deleted)));
+    result.setProperty(rt, "skippedTables", jsi::Value(static_cast<double>(stats.skippedTables)));
+    result.setProperty(rt, "skippedColumns", jsi::Value(static_cast<double>(stats.skippedColumns)));
+    return result;
+}
+
+jsi::Object Database::applySyncJson(int syncJsonId, const jsi::Value &schema, jsi::Runtime &rt) {
+    std::string json;
+    if (!syncjson::take(syncJsonId, json)) {
+        throw jsi::JSError(rt, "PomegranateDB: no sync JSON was provided under id " + std::to_string(syncJsonId));
+    }
+    return importSyncJson(json, schema, rt);
+}
+
+jsi::Object Database::applySyncJsonText(const std::string &jsonText, const jsi::Value &schema, jsi::Runtime &rt) {
+    std::string json = jsonText;
+    return importSyncJson(json, schema, rt);
+}
+
 // ─── JSI Installation ────────────────────────────────────────────────────────
 
 void Database::install(jsi::Runtime &rt) {
@@ -263,6 +340,36 @@ void Database::install(jsi::Runtime &rt) {
                                         return jsi::Value(changes);
                                     }));
 
+            // ─── applySyncJson(syncJsonId, schema?) → stats ──────
+            adapter.setProperty(
+                rt, "applySyncJson",
+                jsi::Function::createFromHostFunction(
+                    rt, jsi::PropNameID::forAscii(rt, "applySyncJson"), 2,
+                    [database](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+                        if (count < 1 || !args[0].isNumber()) {
+                            throw jsi::JSError(rt, "applySyncJson: expected (syncJsonId: number, schema?)");
+                        }
+                        int id = static_cast<int>(args[0].getNumber());
+                        jsi::Value none = jsi::Value::undefined();
+                        const jsi::Value &schema = count > 1 ? args[1] : none;
+                        return database->applySyncJson(id, schema, rt);
+                    }));
+
+            // ─── applySyncJsonText(json, schema?) → stats ────────
+            adapter.setProperty(
+                rt, "applySyncJsonText",
+                jsi::Function::createFromHostFunction(
+                    rt, jsi::PropNameID::forAscii(rt, "applySyncJsonText"), 2,
+                    [database](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+                        if (count < 1 || !args[0].isString()) {
+                            throw jsi::JSError(rt, "applySyncJsonText: expected (json: string, schema?)");
+                        }
+                        std::string json = args[0].getString(rt).utf8(rt);
+                        jsi::Value none = jsi::Value::undefined();
+                        const jsi::Value &schema = count > 1 ? args[1] : none;
+                        return database->applySyncJsonText(json, schema, rt);
+                    }));
+
             // ─── close() ────────────────────────────────────────
             adapter.setProperty(
                 rt, "close",
@@ -277,6 +384,34 @@ void Database::install(jsi::Runtime &rt) {
         });
 
     rt.global().setProperty(rt, "nativePomegranateCreateAdapter", std::move(createAdapter));
+
+    // ─── nativePomegranateProvideSyncJson(id, text) ─────────────────────
+    // JS-side entry to the turbo store, for tests and for payloads that
+    // already exist as a JS string. Native modules should call
+    // syncjson::provide() directly so the bytes never reach the runtime.
+    rt.global().setProperty(
+        rt, "nativePomegranateProvideSyncJson",
+        jsi::Function::createFromHostFunction(
+            rt, jsi::PropNameID::forAscii(rt, "nativePomegranateProvideSyncJson"), 2,
+            [](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+                if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+                    throw jsi::JSError(rt, "nativePomegranateProvideSyncJson: expected (id: number, json: string)");
+                }
+                syncjson::provide(static_cast<int>(args[0].getNumber()), args[1].getString(rt).utf8(rt));
+                return jsi::Value::undefined();
+            }));
+
+    // ─── nativePomegranateDiscardSyncJson(id) → boolean ─────────────────
+    rt.global().setProperty(
+        rt, "nativePomegranateDiscardSyncJson",
+        jsi::Function::createFromHostFunction(
+            rt, jsi::PropNameID::forAscii(rt, "nativePomegranateDiscardSyncJson"), 1,
+            [](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+                if (count < 1 || !args[0].isNumber()) {
+                    throw jsi::JSError(rt, "nativePomegranateDiscardSyncJson: expected (id: number)");
+                }
+                return jsi::Value(syncjson::discard(static_cast<int>(args[0].getNumber())));
+            }));
     platform::consoleLog("PomegranateDB: JSI bridge installed");
 }
 

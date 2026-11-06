@@ -53,11 +53,21 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 file(GLOB ANDROID_JSI_SRC_FILES ./*.cpp)
 file(GLOB SHARED_SRC_FILES ${SHARED_PATH}/*.cpp)
 
+# simdjson single-header build (turbo sync importer). Downloaded by
+# scripts/setup-simdjson; shipped in the npm package.
+set(SIMDJSON_SRC ${SHARED_PATH}/simdjson/simdjson.cpp)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${SIMDJSON_SRC}")
+  message(FATAL_ERROR
+    "pomegranate-jsi: native/shared/simdjson/simdjson.cpp is missing.\n"
+    "Run ./scripts/setup-simdjson in the pomegranate-db checkout.")
+endif()
+
 add_library(pomegranate-jsi SHARED
         # SQLite amalgamation
         ${SQLITE_PATH}/sqlite3.c
         # Our shared C++ sources
         ${SHARED_SRC_FILES}
+        ${SIMDJSON_SRC}
         # Android-specific JNI sources
         ${ANDROID_JSI_SRC_FILES}
         # JSI implementation (needed for linking)

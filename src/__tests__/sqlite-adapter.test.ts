@@ -524,8 +524,13 @@ describe('SQLiteAdapter', () => {
       const upsertedRemote = await adapter.findById('items', 'upserted');
       expect(createdRemote?.title).toBe('Created remotely');
       expect(createdRemote?._status).toBe('synced');
-      expect(updatedRemote?.title).toBe('Updated remotely');
+      // 'existing' is locally updated with `_changed = 'title'`: the local title
+      // wins and the record stays pending so the edit is pushed.
+      expect(updatedRemote?.title).toBe('Local');
+      expect(updatedRemote?._status).toBe('updated');
+      expect(updatedRemote?._changed).toBe('title');
       expect(upsertedRemote?.title).toBe('Inserted from update branch');
+      expect(upsertedRemote?._status).toBe('synced');
       expect(await adapter.findById('items', 'remove-me')).toBeNull();
     });
 

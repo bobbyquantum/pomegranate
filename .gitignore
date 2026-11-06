@@ -28,6 +28,10 @@ native/expoTest/ios/
 
 # SQLite amalgamation (large vendor files — download via script)
 native/shared/sqlite3/
+# simdjson single-header (turbo sync importer — download via scripts/setup-simdjson)
+native/shared/simdjson/
+# host benchmark build output
+native/bench/build/
 
 # IDE
 .idea/

@@ -46,6 +46,17 @@ function PostList() {
 
 The query function receives a `QueryBuilder` — use all the same operators as regular queries.
 
+The component re-renders when the set or order of matching records changes. To also re-render when particular columns change on a matched record (WatermelonDB `observeWithColumns`), pass them as the fourth argument:
+
+```tsx
+const { results } = useLiveQuery(
+  posts,
+  (q) => q.where('status', 'published'),
+  [],
+  { columns: ['title', 'updated_at'] },
+);
+```
+
 ## `useById`
 
 Fetch and observe a single record by ID:

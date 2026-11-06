@@ -25,10 +25,14 @@ Pod::Spec.new do |s|
   s.source_files = [
     "native/ios/**/*.{h,m,mm}",
     "native/shared/*.{h,cpp}",
+    # simdjson single-header build (turbo sync importer). Run
+    # ./scripts/setup-simdjson before `pod install` in a source checkout.
+    "native/shared/simdjson/*.{h,cpp}",
   ]
 
   s.public_header_files = [
     "native/ios/PomegranateJSI.h",
+    "native/ios/PomegranateSyncJson.h",
   ]
 
   # ─── Compiler settings ───────────────────────────────────────────────────────

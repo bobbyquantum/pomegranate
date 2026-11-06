@@ -10,7 +10,9 @@
  */
 
 #import "PomegranateJSI.h"
-#import <React/RCTBridge+Private.h>
+#import <React/RCTBridge.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 #import <React/RCTLog.h>
 #import <jsi/jsi.h>
 
@@ -38,15 +40,27 @@ RCT_EXPORT_MODULE(PomegranateJSIBridge)
  */
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install) {
     @try {
-        RCTCxxBridge *cxxBridge = (RCTCxxBridge *)_bridge;
-        if (!cxxBridge || !cxxBridge.runtime) {
-            RCTLogError(@"[PomegranateDB] Bridge or runtime is nil — cannot install JSI binding. "
+        // Both the legacy RCTCxxBridge and the bridgeless RCTBridgeProxy answer
+        // `-runtime` with the jsi::Runtime*, but neither declares it in a public
+        // header any more (React Native 0.88 dropped RCTCxxBridge), so resolve it
+        // dynamically instead of casting to a concrete bridge class.
+        // The bridgeless bridge is an NSProxy: `respondsToSelector:` on it goes
+        // through message forwarding, so ask the runtime about the proxy's own
+        // class instead.
+        SEL runtimeSelector = NSSelectorFromString(@"runtime");
+        if (!_bridge || !class_respondsToSelector(object_getClass(_bridge), runtimeSelector)) {
+            RCTLogError(@"[PomegranateDB] Bridge does not expose a JS runtime — cannot install JSI binding. "
                         @"Are you using the JSC / Hermes runtime?");
             return @(NO);
         }
 
-        auto *runtime = (facebook::jsi::Runtime *)cxxBridge.runtime;
-        pomegranate::Database::install(*runtime);
+        auto *runtime = ((void *(*)(id, SEL))objc_msgSend)(_bridge, runtimeSelector);
+        if (!runtime) {
+            RCTLogError(@"[PomegranateDB] JS runtime is nil — cannot install JSI binding yet.");
+            return @(NO);
+        }
+
+        pomegranate::Database::install(*static_cast<facebook::jsi::Runtime *>(runtime));
 
         RCTLogInfo(@"[PomegranateDB] Successfully installed JSI bindings!");
         return @(YES);

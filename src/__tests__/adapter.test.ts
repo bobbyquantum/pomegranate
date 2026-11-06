@@ -472,9 +472,12 @@ describe('LokiAdapter', () => {
         },
       });
 
+      // An id collision with a locally created record is merged like a local
+      // update: remote values for every column not in `_changed` (all of them
+      // here), but the local `_status` is kept so the record is still pushed.
       const found = await adapter.findById('items', 'dup1');
       expect(found!.title).toBe('Server version');
-      expect(found!._status).toBe('synced');
+      expect(found!._status).toBe('created');
     });
 
     it('markAsSynced sets _status and clears _changed', async () => {

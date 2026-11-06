@@ -19,6 +19,7 @@
 import type { StorageAdapter, AdapterConfig, Migration } from '../types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../../query/types';
 import type { DatabaseSchema, RawRecord } from '../../schema/types';
+import type { TurboSyncResult, TurboSyncSource } from '../../sync/types';
 import type { WorkerCommandType, WorkerInterface } from './worker/types';
 import { LokiExecutor  } from './worker/LokiExecutor';
 import { LokiDispatcher } from './worker/LokiDispatcher';
@@ -192,6 +193,22 @@ export class LokiAdapter implements StorageAdapter {
 
   async getSchemaVersion(): Promise<number> {
     return this._call('getSchemaVersion', []);
+  }
+
+  // ─── Metadata ───────────────────────────────────────────────────────
+
+  async getMetadata(key: string): Promise<string | null> {
+    return this._call('getMetadata', [key]);
+  }
+
+  async setMetadata(key: string, value: string): Promise<void> {
+    return this._call('setMetadata', [key, value]);
+  }
+
+  // ─── Turbo sync ─────────────────────────────────────────────────────
+
+  async applySyncJson(source: TurboSyncSource, schema: DatabaseSchema): Promise<TurboSyncResult> {
+    return this._call('applySyncJson', [source, schema]);
   }
 
   // ─── Migration ──────────────────────────────────────────────────────

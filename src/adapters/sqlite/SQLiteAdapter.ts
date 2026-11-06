@@ -13,8 +13,14 @@
 import type { StorageAdapter, AdapterConfig, EncryptionConfig, Migration } from '../types';
 import type { QueryDescriptor, SearchDescriptor, BatchOperation } from '../../query/types';
 import type { DatabaseSchema, RawRecord } from '../../schema/types';
+import type { TurboSyncResult, TurboSyncSource } from '../../sync/types';
+import { applySyncJsonInJs, tableColumnsFromSchema } from '../applySyncJsonFallback';
+import { remoteValuesToApply } from '../remoteMerge';
+import { logger } from '../../utils';
 import {
   createTableSQL,
+  addColumnSQL,
+  legacyAddColumnSQL,
   selectSQL,
   countSQL,
   searchSQL,
@@ -22,6 +28,9 @@ import {
   updateSQL,
   deleteSQL,
 } from './sql';
+
+/** Max ids per `IN (...)` list when looking up local sync state. */
+const SYNC_STATE_CHUNK = 500;
 
 // ─── SQLite Driver Interface ──────────────────────────────────────────────
 
@@ -74,6 +83,16 @@ export interface SQLiteDriver {
    * calls (still fast for sync drivers, but slow for async-only drivers).
    */
   executeBatchNoTx?(commands: Array<[string, unknown[]]>): Promise<void>;
+
+  /**
+   * Optional: turbo sync — parse and import a whole pull payload natively.
+   *
+   * `tableColumns` is { table: [column, …] }; the driver must ignore tables
+   * and drop columns that are not listed. Rows are written with
+   * INSERT OR REPLACE as `_status = 'synced'`, deletions with DELETE, all in
+   * one transaction. Provided by `pomegranate-db/native-sqlite`.
+   */
+  applySyncJson?(source: TurboSyncSource, tableColumns: Record<string, string[]>): Promise<TurboSyncResult>;
 }
 
 // ─── SQLite Adapter Config ────────────────────────────────────────────────
@@ -92,6 +111,7 @@ export class SQLiteAdapter implements StorageAdapter {
   private _databaseName: string;
   private _encryption?: EncryptionConfig;
   private _initialized = false;
+  private _opened = false;
   private _inWriteTransaction = false;
 
   constructor(config: SQLiteAdapterConfig) {
@@ -111,7 +131,11 @@ export class SQLiteAdapter implements StorageAdapter {
   async initialize(schema: DatabaseSchema): Promise<void> {
     if (this._initialized) return;
 
-    await this._driver.open(this._databaseName);
+    // `reset()` drops the tables but keeps the connection; only open once.
+    if (!this._opened) {
+      await this._driver.open(this._databaseName);
+      this._opened = true;
+    }
 
     // Create metadata table
     await this._driver.execute(
@@ -340,39 +364,78 @@ export class SQLiteAdapter implements StorageAdapter {
   ): Promise<void> {
     await this._driver.executeInTransaction(async () => {
       for (const [table, tableChanges] of Object.entries(changes)) {
-        // Apply created records
-        for (const raw of tableChanges.created) {
-          const record = { ...raw, _status: 'synced', _changed: '' };
-          // Use INSERT OR REPLACE in case the record already exists locally
-          const { sql, bindings } = insertSQL(table, record);
-          const replaceSql = sql.replace('INSERT INTO', 'INSERT OR REPLACE INTO');
-          await this._driver.execute(replaceSql, bindings);
-        }
+        // `created` and `updated` are handled identically: what matters is the
+        // local row's sync state, looked up once per table in id chunks.
+        const incoming = [...tableChanges.created, ...tableChanges.updated];
+        const local = await this._loadSyncStates(
+          table,
+          incoming.map((r) => r.id),
+        );
 
-        // Apply updated records
-        for (const raw of tableChanges.updated) {
-          const record = { ...raw, _status: 'synced', _changed: '' };
-          // Check if record exists
-          const existing = await this._driver.query(
-            `SELECT "_status" FROM "${table}" WHERE "id" = ?`,
-            [raw.id],
-          );
+        for (const raw of incoming) {
+          const state = local.get(raw.id);
 
-          if (existing.length > 0) {
-            const { sql, bindings } = updateSQL(table, record);
+          if (!state) {
+            const { sql, bindings } = insertSQL(table, { ...raw, _status: 'synced', _changed: '' });
             await this._driver.execute(sql, bindings);
-          } else {
-            const { sql, bindings } = insertSQL(table, record);
+            local.set(raw.id, { status: 'synced', changed: '' });
+            continue;
+          }
+
+          if (state.status === 'deleted') {
+            // Locally deleted — the delete wins and will be pushed.
+            continue;
+          }
+
+          if (state.status === 'synced') {
+            const { sql, bindings } = updateSQL(table, { ...raw, _status: 'synced', _changed: '' });
+            await this._driver.execute(sql, bindings);
+            continue;
+          }
+
+          // Locally 'updated' (or 'created' — an id collision, treated the same).
+          if (state.status === 'created') {
+            logger.warn(
+              `Sync: remote record "${table}/${raw.id}" collides with a locally created record; ` +
+                'merging and keeping the local changes.',
+            );
+          }
+          const toApply = remoteValuesToApply(raw, state.changed);
+          if (Object.keys(toApply).length > 1) {
+            const { sql, bindings } = updateSQL(table, toApply);
             await this._driver.execute(sql, bindings);
           }
         }
 
-        // Apply deletions
         for (const id of tableChanges.deleted) {
           await this._driver.execute(`DELETE FROM "${table}" WHERE "id" = ?`, [id]);
         }
       }
     });
+  }
+
+  /** `id → { _status, _changed }` for the given ids, fetched in chunks of ≤ 500. */
+  private async _loadSyncStates(
+    table: string,
+    ids: string[],
+  ): Promise<Map<string, { status: string; changed: string }>> {
+    const states = new Map<string, { status: string; changed: string }>();
+    const unique = Array.from(new Set(ids));
+    for (let i = 0; i < unique.length; i += SYNC_STATE_CHUNK) {
+      const chunk = unique.slice(i, i + SYNC_STATE_CHUNK);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = await this._driver.query(
+        `SELECT "id", "_status", "_changed" FROM "${table}" WHERE "id" IN (${placeholders})`,
+        chunk,
+      );
+      for (const row of rows) {
+        states.set(String(row.id), {
+          status: String(row._status),
+          changed: typeof row._changed === 'string' ? row._changed : '',
+        });
+      }
+    }
+    return states;
   }
 
   async markAsSynced(table: string, ids: string[]): Promise<void> {
@@ -398,6 +461,32 @@ export class SQLiteAdapter implements StorageAdapter {
     }
   }
 
+  // ─── Metadata ───────────────────────────────────────────────────────
+
+  async getMetadata(key: string): Promise<string | null> {
+    const rows = await this._driver.query(
+      'SELECT "value" FROM "__pomegranate_metadata" WHERE "key" = ?',
+      [key],
+    );
+    return rows.length > 0 && rows[0].value != null ? String(rows[0].value) : null;
+  }
+
+  async setMetadata(key: string, value: string): Promise<void> {
+    await this._driver.execute(
+      'INSERT OR REPLACE INTO "__pomegranate_metadata" ("key", "value") VALUES (?, ?)',
+      [key, value],
+    );
+  }
+
+  // ─── Turbo sync ─────────────────────────────────────────────────────
+
+  async applySyncJson(source: TurboSyncSource, schema: DatabaseSchema): Promise<TurboSyncResult> {
+    if (this._driver.applySyncJson) {
+      return this._driver.applySyncJson(source, tableColumnsFromSchema(schema));
+    }
+    return applySyncJsonInJs(this, source, schema);
+  }
+
   // ─── Migration ──────────────────────────────────────────────────────
 
   async migrate(migrations: Migration[]): Promise<void> {
@@ -421,8 +510,24 @@ export class SQLiteAdapter implements StorageAdapter {
             }
             case 'addColumn':
               await this._driver.execute(
-                `ALTER TABLE "${step.table}" ADD COLUMN "${step.column}" ${step.columnType}${step.isOptional ? '' : ' NOT NULL DEFAULT ""'}`,
+                legacyAddColumnSQL(
+                  step.table,
+                  step.column,
+                  step.columnType,
+                  step.isOptional ?? false,
+                ),
               );
+              break;
+            case 'addColumns':
+              for (const column of step.columns) {
+                await this._driver.execute(addColumnSQL(step.table, column));
+                if (column.isIndexed) {
+                  const indexName = `${step.table}_${column.name}`;
+                  await this._driver.execute(
+                    `CREATE INDEX IF NOT EXISTS "${indexName}" ON "${step.table}" ("${column.name}")`,
+                  );
+                }
+              }
               break;
             case 'destroyTable':
               await this._driver.execute(`DROP TABLE IF EXISTS "${step.table}"`);
@@ -449,11 +554,18 @@ export class SQLiteAdapter implements StorageAdapter {
       'SELECT name FROM sqlite_master WHERE type=\'table\' AND name NOT LIKE \'sqlite_%\'',
     );
 
-    await this._driver.executeInTransaction(async () => {
+    const dropAll = async () => {
       for (const t of tables) {
         await this._driver.execute(`DROP TABLE IF EXISTS "${t.name}"`);
       }
-    });
+    };
+
+    // Inside `writeTransaction` a nested BEGIN would fail — join it instead.
+    if (this._inWriteTransaction) {
+      await dropAll();
+    } else {
+      await this._driver.executeInTransaction(dropAll);
+    }
 
     this._initialized = false;
   }
@@ -462,6 +574,7 @@ export class SQLiteAdapter implements StorageAdapter {
 
   async close(): Promise<void> {
     await this._driver.close();
+    this._opened = false;
   }
 }
 

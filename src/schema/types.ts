@@ -7,7 +7,7 @@
 
 // ─── Column Types ──────────────────────────────────────────────────────────
 
-export type ColumnType = 'text' | 'number' | 'boolean' | 'date';
+export type ColumnType = 'text' | 'number' | 'boolean' | 'date' | 'json';
 
 export interface ColumnDescriptor {
   readonly type: ColumnType;
@@ -32,6 +32,16 @@ export interface BooleanColumn extends ColumnDescriptor {
 
 export interface DateColumn extends ColumnDescriptor {
   readonly type: 'date';
+}
+
+/**
+ * JSON column — stored as a serialized string (TEXT), parsed on read.
+ * `T` is the parsed shape; an optional sanitizer normalises the parsed value
+ * (WatermelonDB `@json` semantics).
+ */
+export interface JsonColumn<T = unknown> extends ColumnDescriptor {
+  readonly type: 'json';
+  readonly sanitizer?: (raw: unknown) => T;
 }
 
 // ─── Relation Types ────────────────────────────────────────────────────────
@@ -88,6 +98,8 @@ export interface ResolvedColumn {
   readonly isOptional: boolean;
   readonly isIndexed: boolean;
   readonly defaultValue?: unknown;
+  /** JSON columns only: applied to the parsed value on read */
+  readonly sanitizer?: (raw: unknown) => unknown;
 }
 
 export interface ResolvedRelation {
@@ -161,7 +173,11 @@ export type InferColumnType<C extends ColumnDescriptor> = C['type'] extends 'tex
       ? boolean
       : C['type'] extends 'date'
         ? Date
-        : never;
+        : C['type'] extends 'json'
+          ? C extends JsonColumn<infer T>
+            ? T
+            : unknown
+          : never;
 
 /** For optional columns, make the type T | null */
 type MaybeOptional<C extends ColumnDescriptor, T> = C['isOptional'] extends true ? T | null : T;

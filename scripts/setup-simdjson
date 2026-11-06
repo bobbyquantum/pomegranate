@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# ─── PomegranateDB — Download simdjson single-header ──────────────────────
+#
+# Downloads the simdjson 4.6.9 single-header distribution into
+# native/shared/simdjson/. It powers the turbo sync importer
+# (native/shared/SyncJsonImporter.cpp) and is required to build the native
+# JSI library on Android and iOS.
+# Like the SQLite amalgamation it is gitignored (too large to commit) but
+# listed in package.json `files` so it ships in npm publishes.
+#
+# Usage:
+#   ./scripts/setup-simdjson
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SIMDJSON_DIR="$PROJECT_ROOT/native/shared/simdjson"
+SIMDJSON_VERSION="4.6.9"
+SIMDJSON_URL="https://github.com/simdjson/simdjson/releases/download/v${SIMDJSON_VERSION}/singleheader.zip"
+
+if [[ -f "$SIMDJSON_DIR/simdjson.cpp" && -f "$SIMDJSON_DIR/simdjson.h" ]]; then
+  echo "✓ simdjson already present ($(head -1 "$SIMDJSON_DIR/simdjson.h" | sed -E 's/.*version ([0-9.]+).*/\1/'))"
+  exit 0
+fi
+
+echo "⬇  Downloading simdjson ${SIMDJSON_VERSION} single-header…"
+mkdir -p "$SIMDJSON_DIR"
+
+TMP_ZIP=$(mktemp /tmp/simdjson-XXXXXX.zip)
+curl -L --progress-bar "$SIMDJSON_URL" -o "$TMP_ZIP"
+
+unzip -j -o "$TMP_ZIP" "simdjson.cpp" "simdjson.h" -d "$SIMDJSON_DIR"
+rm "$TMP_ZIP"
+
+echo "✓ simdjson extracted to native/shared/simdjson/"
