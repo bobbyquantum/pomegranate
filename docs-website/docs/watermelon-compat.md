@@ -119,7 +119,43 @@ The compat adapters are configuration objects carrying the core adapter (`adapte
 | `pomegranate` | the core `Database` |
 | `ready` | resolves after open + migrate |
 
-Not provided: `database.batch()` / `prepareCreate()` / `prepareUpdate()`, `database.localStorage`, `experimentalSubscribe`. Write several records inside one `write()` instead — the core wraps it in a single transaction.
+| `batch(...records)` | inside `write()`; persists prepared records in one adapter batch (see [Batch writes](#batch-writes)) |
+
+Not provided: `database.localStorage`, `experimentalSubscribe`.
+
+## Batch writes
+
+`database.batch()` takes records staged with the `prepare*` methods and writes them in a single adapter batch, exactly as WatermelonDB does:
+
+```ts
+await database.write(async () => {
+  await database.batch(
+    ...staleRecords.map((record) => record.prepareMarkAsDeleted()),
+    workTask.prepareUpdate((record) => { record.mobileScript = 'X'; }),
+    database.get('survey_responses').prepareCreate((record) => { record.surveyHeaderId = 'h1'; }),
+    database.get('workflow_profiles').prepareCreateFromDirtyRaw({ id: 'wp1', name: 'Standard' }),
+    null, undefined, [moreRecords],       // falsy entries are ignored, nested arrays flattened
+  );
+});
+```
+
+| Method | Notes |
+|---|---|
+| `collection.prepareCreate(mutator?)` | builds the draft like `create()` (defaults + mutator) without persisting; `draft.id` is assigned at once so other prepared records can reference it |
+| `collection.prepareCreateFromDirtyRaw(dirtyRaw)` | the row comes from an object keyed by **column** name: unknown columns are dropped, values coerced to the schema (booleans → 0/1, dates → timestamps, JSON → string), missing or ill-typed ones take the column default, `id` is honoured when present; the record is `_status: 'created'`, `_changed: ''` |
+| `collection.createFromDirtyRaw(dirtyRaw)` | the same, persisted immediately (inside `write()`) |
+| `record.prepareUpdate(mutator?)` | runs the mutator now (reads reflect the staged values) and returns the record; nothing is written |
+| `record.prepareMarkAsDeleted()`, `record.prepareDestroyPermanently()` | stage a soft / hard delete; return the record |
+| `record._preparedState` | the staged operation (`{ type: 'create' \| 'update' \| 'markAsDeleted' \| 'destroyPermanently', … }`) or `null` |
+
+Rules:
+
+- `prepareCreate()` / `prepareUpdate()` mutators are **synchronous** (as in WatermelonDB); an async mutator throws. `create()` / `update()` still accept async mutators.
+- A record with a pending prepared operation rejects `update()`, `markAsDeleted()`, `destroyPermanently()` and a second `prepare*()` with a clear error until it has been passed to `batch()`.
+- `batch()` must run inside `write()` and only accepts records of this database. A failed batch rolls back (one adapter batch, inside the writer's transaction) and leaves the prepared state in place, so the same records can be retried.
+- Pending `prepareUpdate()` values are not visible through the record's getters or `_raw` until the batch runs (WatermelonDB applies them immediately; here `_raw` always mirrors the stored row).
+
+After the batch, every observer behaves as it would after the equivalent individual writes: created records become the live cached instances (the draft **is** the record `find()` returns) and emit `created`; updated records are refreshed in place, emit on `record.observe()` and notify live queries with the changed columns, so `observeWithColumns` only re-emits for watched columns; soft-deleted records get `syncStatus: 'deleted'` and permanently deleted ones leave the cache, both emitting `destroyed`. `_status` / `_changed` are maintained as by `update()` (a `synced` record becomes `updated`; `_changed` accumulates column names), so batched changes show up in `hasUnsyncedChanges()` and the next push.
 
 ## Queries
 
@@ -148,7 +184,8 @@ Translation notes:
 ## Records
 
 - `collection.find(id)` rejects with `Record <id> not found in <table>` when missing; `findAndObserve(id)` errors on a missing record and completes if it is later deleted.
-- `collection.create(record => { … })` runs the mutator on a draft whose getters reflect the values you set; the record's `id` inside the mutator is the final one. **`id` cannot be chosen** — a raw `_raw.id` assignment in the mutator is not supported.
+- `collection.create(record => { … })` runs the mutator on a draft whose getters reflect the values you set; the record's `id` inside the mutator is the final one. **`id` cannot be chosen** through a mutator — use `createFromDirtyRaw({ id, … })` / `prepareCreateFromDirtyRaw()` for that.
+- `prepareCreate()`, `prepareCreateFromDirtyRaw()`, `prepareUpdate()`, `prepareMarkAsDeleted()`, `prepareDestroyPermanently()` stage work for `database.batch()` — see [Batch writes](#batch-writes).
 - `record.update(record => { … })` supports async mutators and reads pending values; `record.update({ field: value })` (core-style patch) also works.
 - `markAsDeleted()`, `destroyPermanently()`, `syncStatus`, `_raw` (the stored row — pending mutator values are not reflected), `observe()`, `table`, `database`, `collections`, `asModel` are available.
 - `relation.fetch()` returns `null` for a null key and rejects for a dangling one; `relation.observe()` follows changes to the foreign key and to the related record; `relation.set(record | null)` and `relation.id = …` stage the foreign key inside a mutator.
@@ -194,9 +231,10 @@ const Wrapped = withDatabase(Component);   // injects `database`
 
 ## Differences from WatermelonDB at a glance
 
-- Models use `m.model()` + getters/setters instead of decorators; `create()` cannot set `id`.
+- Models use `m.model()` + getters/setters instead of decorators; `create()` cannot set `id` (`createFromDirtyRaw` can).
 - Observables are rxjs-shaped, not rxjs instances (no `.pipe`).
 - `Q.experimentalJoinTables` / `Q.experimentalNestedJoin` are no-ops; unsafe raw-SQL/Loki query escapes are not available.
-- `database.batch()`, `prepare*()`, `localStorage`, `conflictResolver` and `withObservables` are not provided.
+- `prepareCreate()` / `prepareUpdate()` mutators must be synchronous; staged `prepareUpdate()` values are not readable before the batch.
+- `localStorage`, `conflictResolver` and `withObservables` are not provided.
 - `LokiJSAdapter({ useWebWorker: true })` runs on the main thread (one warning).
 - `read()` runs after `ready` but is not serialised against writers.

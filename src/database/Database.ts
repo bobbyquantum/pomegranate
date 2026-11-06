@@ -273,21 +273,25 @@ export class Database implements ModelDatabaseRef {
   /**
    * Execute a batch of operations atomically.
    * Must be called inside `db.write()`.
+   *
+   * After the adapter applies the operations, each affected collection is
+   * brought up to date and notified per record — created rows enter the
+   * cache and emit `created`, updated rows refresh their cached instance and
+   * emit `updated` (with `changedColumns` when the operation carries them),
+   * deleted rows emit `deleted` — so live queries, `observeById` and
+   * `record.observe()` behave as they would after the equivalent single
+   * mutations.
    */
   async batch(operations: BatchOperation[]): Promise<void> {
     this._ensureInWriter('Database.batch()');
     await this._adapter.batch(operations);
+    this._applyBatchOperations(operations);
+  }
 
-    // Notify affected collections so live queries / observers update
-    const affectedTables = new Set(operations.map((op) => op.table));
-    for (const table of affectedTables) {
-      const collection = this._collections.get(table);
-      if (collection) {
-        // Fire a single synthetic notification per table to trigger re-queries.
-        // We use 'updated' with a minimal record since observers only check
-        // that *something* changed on the collection.
-        collection._notifyChange('updated', { id: '__batch__' } as Model);
-      }
+  /** @internal Reflect adapter-applied batch operations in the collections. */
+  _applyBatchOperations(operations: readonly BatchOperation[]): void {
+    for (const op of operations) {
+      this._collections.get(op.table)?._applyBatchOperation(op);
     }
   }
 

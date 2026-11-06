@@ -262,6 +262,23 @@ export class Model<S extends ModelSchema = ModelSchema> {
   async update(patch: Record<string, unknown>): Promise<this> {
     this.collection._getDatabase()._ensureInWriter('Model.update()');
 
+    const { rawUpdates, changedColumns } = this._rawUpdatesForPatch(patch);
+    Object.assign(rawUpdates, this._syncColumnsFor(changedColumns));
+
+    await this.collection._update(this.id, rawUpdates, changedColumns);
+    this._setRaw(rawUpdates);
+    return this;
+  }
+
+  /**
+   * @internal Translate a field-keyed patch into column-keyed raw updates
+   * (serialised for storage) plus the list of columns it touches. Throws for
+   * readonly or unknown fields. Does not touch the record.
+   */
+  _rawUpdatesForPatch(patch: Record<string, unknown>): {
+    rawUpdates: Record<string, unknown>;
+    changedColumns: string[];
+  } {
     const schema = (this.constructor as typeof Model).schema;
     const rawUpdates: Record<string, unknown> = {};
     const changedColumns: string[] = [];
@@ -288,18 +305,22 @@ export class Model<S extends ModelSchema = ModelSchema> {
       }
     }
 
-    // Track changed columns for sync
+    return { rawUpdates, changedColumns };
+  }
+
+  /**
+   * @internal The sync bookkeeping an update touching `changedColumns` adds
+   * to this record's current raw: `_changed` accumulates the columns and a
+   * `synced` record becomes `updated`.
+   */
+  _syncColumnsFor(changedColumns: readonly string[]): Partial<RawRecord> {
     const existingChanged = this.#raw._changed ? this.#raw._changed.split(',').filter(Boolean) : [];
     const allChanged = [...new Set([...existingChanged, ...changedColumns])];
-
+    const updates: Record<string, unknown> = { _changed: allChanged.join(',') };
     if (this.#raw._status === 'synced') {
-      rawUpdates._status = 'updated' as SyncStatus;
+      updates._status = 'updated' as SyncStatus;
     }
-    rawUpdates._changed = allChanged.join(',');
-
-    await this.collection._update(this.id, rawUpdates, changedColumns);
-    this._setRaw(rawUpdates);
-    return this;
+    return updates as Partial<RawRecord>;
   }
 
   /**

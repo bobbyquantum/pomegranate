@@ -5,11 +5,11 @@
 import type { Collection as CoreCollection, CollectionChange } from '../collection/Collection';
 import type { ModelCollectionRef, ModelDatabaseRef, ModelStatic } from '../model/Model';
 import { createRawRecord } from '../model/Model';
-import type { ModelSchema, RawRecord } from '../schema/types';
+import type { ModelSchema, RawRecord, ResolvedColumn } from '../schema/types';
 import type { Unsubscribe } from '../observable/Subject';
 import type { Clause } from './Q';
 import { Query } from './Query';
-import type { Model } from './Model';
+import type { Model, PrepareMutator } from './Model';
 import type { Database } from './Database';
 import { WatermelonObservable, subscribeToFutureValues } from './observable';
 
@@ -104,22 +104,74 @@ export class Collection<T extends Model = Model> implements ModelCollectionRef {
    */
   async create(mutator?: (record: T) => void | Promise<void>): Promise<T> {
     await this.database.ready;
-    const coreDb = this.database.pomegranate;
-    coreDb._ensureInWriter('Collection.create()');
+    this.database.pomegranate._ensureInWriter('Collection.create()');
 
+    const draft = this._draft();
+    const patch = await draft._captureMutations(mutator);
+    return this._insert(draft, createRawRecord(this.schema, patch, draft.id));
+  }
+
+  /**
+   * Build a record without persisting it, for `database.batch()`. The
+   * mutator runs now (synchronously, like WatermelonDB's); `record.id` is
+   * already assigned so it can be wired into other prepared records.
+   */
+  prepareCreate(mutator?: PrepareMutator<T>): T {
+    const draft = this._draft();
+    const patch = draft._captureMutationsSync(mutator, 'prepareCreate()');
+    return this._stageCreate(draft, createRawRecord(this.schema, patch, draft.id));
+  }
+
+  /**
+   * Like `prepareCreate()`, but the row comes from a raw object keyed by
+   * **column** name (e.g. a server payload). Unknown columns are dropped,
+   * values are coerced to the schema (booleans → 0/1, dates → timestamps,
+   * JSON → string), missing columns take their defaults, `id` is honoured
+   * when present, and the record is `_status: 'created'`, `_changed: ''`.
+   */
+  prepareCreateFromDirtyRaw(dirtyRaw: Record<string, unknown>): T {
+    const raw = rawFromDirty(this.schema, dirtyRaw);
+    return this._stageCreate(new this.modelClass(this.pomegranate, raw) as T, raw);
+  }
+
+  /** `prepareCreateFromDirtyRaw()` persisted at once. Must be inside `write()`. */
+  async createFromDirtyRaw(dirtyRaw: Record<string, unknown>): Promise<T> {
+    await this.database.ready;
+    this.database.pomegranate._ensureInWriter('Collection.createFromDirtyRaw()');
+    const record = this.prepareCreateFromDirtyRaw(dirtyRaw);
+    record._setPreparedState(null);
+    return this._insert(record, record._raw);
+  }
+
+  /** A fresh draft with default values (not cached, not persisted). */
+  private _draft(): T {
     const draft = new this.modelClass(this.pomegranate, createRawRecord(this.schema, {})) as T;
     if (typeof draft._captureMutations !== 'function') {
       throw new TypeError(
         `Model class for table "${this.table}" must extend Model from 'pomegranate-db/watermelon'`,
       );
     }
-    const patch = await draft._captureMutations(mutator);
+    return draft;
+  }
 
-    const raw: RawRecord = createRawRecord(this.schema, patch, draft.id);
-    await coreDb._adapter.insert(this.table, raw);
-    const record = this.pomegranate._cacheRaw(raw);
-    this.pomegranate._notifyChange('created', record);
+  private _stageCreate(draft: T, raw: RawRecord): T {
+    if (draft._raw !== raw) draft._setRaw(raw);
+    draft._setPreparedState({ type: 'create', raw });
+    return draft;
+  }
+
+  /** Persist `raw` as `record`, cache the instance and notify observers. */
+  private async _insert(record: T, raw: RawRecord): Promise<T> {
+    await this.database.pomegranate._adapter.insert(this.table, raw);
+    this._commitCreated(record, raw);
     return record;
+  }
+
+  /** @internal After `raw` was inserted: make `record` the live instance. */
+  _commitCreated(record: T, raw: RawRecord): void {
+    if (record._raw !== raw) record._setRaw(raw);
+    this.pomegranate._cacheRecord(record);
+    this.pomegranate._notifyChange('created', record);
   }
 
   /** Emits one change set per created/updated/destroyed record. */
@@ -159,5 +211,42 @@ export class Collection<T extends Model = Model> implements ModelCollectionRef {
 
   _getDatabase(): ModelDatabaseRef {
     return this.pomegranate._getDatabase();
+  }
+}
+
+// ─── Dirty raw sanitisation ─────────────────────────────────────────────────
+
+/**
+ * Build a raw row from a column-keyed object, as WatermelonDB's
+ * `sanitizedRaw` does: unknown columns dropped, values coerced per column
+ * type, missing or invalid ones replaced by the schema default.
+ */
+export function rawFromDirty(schema: ModelSchema, dirtyRaw: Record<string, unknown>): RawRecord {
+  const patch: Record<string, unknown> = {};
+  for (const col of schema.columns) {
+    if (!(col.columnName in dirtyRaw)) continue;
+    const value = coerceDirtyValue(col, dirtyRaw[col.columnName]);
+    if (value !== undefined) patch[col.fieldName] = value;
+  }
+  const id = dirtyRaw.id;
+  return createRawRecord(schema, patch, typeof id === 'string' && id !== '' ? id : undefined);
+}
+
+/** A field-level value for `createRawRecord`, or `undefined` to use the column default. */
+function coerceDirtyValue(col: ResolvedColumn, value: unknown): unknown {
+  if (value === null || value === undefined) return col.isOptional ? null : undefined;
+  switch (col.type) {
+    case 'text':
+      return typeof value === 'string' ? value : undefined;
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    case 'boolean':
+      if (typeof value === 'boolean') return value;
+      return value === 1 || value === 0 ? value === 1 : undefined;
+    case 'date':
+      if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+      return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    case 'json':
+      return value;
   }
 }

@@ -23,6 +23,25 @@ export type { ModelAssociation };
 
 export type Mutator<M> = (record: M) => void | Promise<void>;
 
+/** A `prepareCreate()` / `prepareUpdate()` mutator: synchronous, like WatermelonDB's. */
+export type PrepareMutator<M> = (record: M) => void;
+
+/**
+ * A mutation staged by `prepareCreate()` / `prepareUpdate()` /
+ * `prepareMarkAsDeleted()` / `prepareDestroyPermanently()`, waiting for
+ * `database.batch()` to persist it.
+ */
+export type PreparedState =
+  | { readonly type: 'create'; readonly raw: RawRecord }
+  | {
+      readonly type: 'update';
+      /** Column-keyed, serialised values (sync columns are added at batch time). */
+      readonly rawUpdates: Record<string, unknown>;
+      readonly changedColumns: readonly string[];
+    }
+  | { readonly type: 'markAsDeleted' }
+  | { readonly type: 'destroyPermanently' };
+
 export class Model<S extends ModelSchema = ModelSchema> extends CoreModel<S> {
   /** WatermelonDB's static table name (informational; the schema's table is authoritative). */
   static table: string;
@@ -31,6 +50,7 @@ export class Model<S extends ModelSchema = ModelSchema> extends CoreModel<S> {
   declare readonly collection: Collection<this>;
 
   #capture: Map<string, unknown> | null = null;
+  #prepared: PreparedState | null = null;
 
   constructor(collection: ModelCollectionRef, raw: RawRecord) {
     super(collection, raw);
@@ -103,21 +123,101 @@ export class Model<S extends ModelSchema = ModelSchema> extends CoreModel<S> {
     }
   }
 
+  /**
+   * @internal Run a synchronous mutator in capture mode and return the staged
+   * patch (by field name). Used by `prepareCreate()` / `prepareUpdate()`,
+   * which must return their record synchronously.
+   */
+  _captureMutationsSync(mutator?: PrepareMutator<this>, action = 'prepareUpdate()'): Record<string, unknown> {
+    if (this.#capture) {
+      throw new Error('Nested update()/create() on the same record is not supported');
+    }
+    this.#capture = new Map();
+    try {
+      const result = mutator?.(this) as unknown;
+      if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+        throw new TypeError(`${action} mutators must be synchronous (the mutator returned a promise)`);
+      }
+      return Object.fromEntries(this.#capture);
+    } finally {
+      this.#capture = null;
+    }
+  }
+
   // ─── Mutations ─────────────────────────────────────────────────────────
 
   /**
    * Update this record. Accepts a WatermelonDB mutator (`record => { … }`)
    * or a core-style patch keyed by field name. Must be inside `write()`.
+   * Like WatermelonDB, resolves to the updated record itself.
    */
-  /** Like WatermelonDB, resolves to the updated record itself. */
   async update(mutatorOrPatch?: Mutator<this> | Record<string, unknown>): Promise<this> {
     this.collection._getDatabase()._ensureInWriter('Model.update()');
+    this.#ensureNotPrepared('update()');
     if (typeof mutatorOrPatch === 'function') {
       const patch = await this._captureMutations(mutatorOrPatch);
       await super.update(patch);
       return this;
     }
     await super.update(mutatorOrPatch ?? {});
+    return this;
+  }
+
+  async markAsDeleted(): Promise<void> {
+    this.#ensureNotPrepared('markAsDeleted()');
+    await super.markAsDeleted();
+  }
+
+  async destroyPermanently(): Promise<void> {
+    this.#ensureNotPrepared('destroyPermanently()');
+    await super.destroyPermanently();
+  }
+
+  // ─── Prepared mutations (database.batch) ───────────────────────────────
+
+  /** The mutation staged on this record for `database.batch()`, if any. */
+  get _preparedState(): PreparedState | null {
+    return this.#prepared;
+  }
+
+  /** @internal Set (or clear) the staged mutation. */
+  _setPreparedState(state: PreparedState | null): void {
+    this.#prepared = state;
+  }
+
+  #ensureNotPrepared(action: string): void {
+    if (this.#prepared) {
+      throw new Error(
+        `Cannot call ${action} on ${this.table}#${this.id}: it has a pending ` +
+          `prepare${capitalize(this.#prepared.type)}(). Pass the record to database.batch() instead`,
+      );
+    }
+  }
+
+  /**
+   * Stage an update for `database.batch()`. The mutator runs now (reads
+   * reflect the staged values) but nothing is persisted until the record is
+   * passed to `database.batch()` inside `write()`. Returns this record.
+   */
+  prepareUpdate(mutator?: PrepareMutator<this>): this {
+    this.#ensureNotPrepared('prepareUpdate()');
+    const patch = this._captureMutationsSync(mutator, 'prepareUpdate()');
+    const { rawUpdates, changedColumns } = this._rawUpdatesForPatch(patch);
+    this.#prepared = { type: 'update', rawUpdates, changedColumns };
+    return this;
+  }
+
+  /** Stage a soft delete for `database.batch()`. Returns this record. */
+  prepareMarkAsDeleted(): this {
+    this.#ensureNotPrepared('prepareMarkAsDeleted()');
+    this.#prepared = { type: 'markAsDeleted' };
+    return this;
+  }
+
+  /** Stage a permanent delete for `database.batch()`. Returns this record. */
+  prepareDestroyPermanently(): this {
+    this.#ensureNotPrepared('prepareDestroyPermanently()');
+    this.#prepared = { type: 'destroyPermanently' };
     return this;
   }
 
@@ -147,6 +247,10 @@ export class Model<S extends ModelSchema = ModelSchema> extends CoreModel<S> {
   relation<T extends Model = Model>(table: string, key: string): Relation<T> {
     return new Relation<T>(this, table, key);
   }
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function associationFor(modelClass: typeof Model, table: string): ModelAssociation {

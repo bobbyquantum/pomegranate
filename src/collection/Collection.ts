@@ -10,7 +10,7 @@ import { createRawRecord } from '../model/Model';
 import type { ModelStatic, ModelCollectionRef, ModelDatabaseRef, Model } from '../model/Model';
 import { QueryBuilder } from '../query/QueryBuilder';
 import type { AssociationJoin } from '../query/QueryBuilder';
-import type { QueryDescriptor, SearchDescriptor } from '../query/types';
+import type { BatchOperation, QueryDescriptor, SearchDescriptor } from '../query/types';
 import { collectQueryColumns, collectExistsTables } from '../query/introspect';
 import { Subject } from '../observable/Subject';
 import type { Observable } from '../observable/Subject';
@@ -469,6 +469,59 @@ export class Collection<M extends Model = Model> implements ModelCollectionRef {
   /** Drop a record from the cache (after it was destroyed through the adapter). */
   _evictCached(id: string): void {
     this._cache.delete(id);
+  }
+
+  /** @internal The cached instance for `id`, if any (no adapter access). */
+  _peekCached(id: string): M | undefined {
+    return this._cache.get(id);
+  }
+
+  /**
+   * @internal Make `record` the cached instance for its id (a draft that has
+   * just been persisted, or a held instance after the cache was cleared).
+   */
+  _cacheRecord(record: M): void {
+    this._cache.set(record.id, record);
+  }
+
+  /**
+   * @internal Reflect a batch operation the adapter has already applied:
+   * refresh or evict the cached instance and notify observers with a real
+   * record, as the equivalent single mutation would. A `delete` /
+   * `destroyPermanently` of a record that was never loaded notifies with an
+   * id-only stub so live queries still re-run.
+   */
+  _applyBatchOperation(op: BatchOperation): void {
+    switch (op.type) {
+      case 'create': {
+        const record = this._materialize(op.rawRecord as RawRecord);
+        this._changes$.next({ type: 'created', record });
+        break;
+      }
+      case 'update': {
+        const record = this._materialize(op.rawRecord as RawRecord);
+        this._changes$.next({
+          type: 'updated',
+          record,
+          columns: op.changedColumns ? [...op.changedColumns] : undefined,
+        });
+        break;
+      }
+      case 'delete': {
+        const id = op.id!;
+        const record = this._cache.get(id);
+        record?._setRaw({ _status: 'deleted' });
+        this._changes$.next({ type: 'deleted', record: record ?? ({ id } as Model) });
+        break;
+      }
+      case 'destroyPermanently': {
+        const id = op.id!;
+        const record = this._cache.get(id);
+        this._cache.delete(id);
+        this._changes$.next({ type: 'deleted', record: record ?? ({ id } as Model) });
+        break;
+      }
+    }
   }
 
   /**

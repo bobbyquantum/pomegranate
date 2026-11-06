@@ -10,6 +10,8 @@ import type { StorageAdapter } from '../adapters/types';
 import type { Collection as CoreCollection } from '../collection/Collection';
 import type { ModelStatic } from '../model/Model';
 import type { Unsubscribe } from '../observable/Subject';
+import type { BatchOperation } from '../query/types';
+import type { RawRecord } from '../schema/types';
 import type { CompatAdapter } from './adapters';
 import type { AppSchema } from './schema';
 import { Collection, toChangeSet } from './Collection';
@@ -24,6 +26,12 @@ export interface DatabaseOptions {
   /** Accepted for compatibility; writers are always required. */
   readonly actionsEnabled?: boolean;
 }
+
+/**
+ * What `database.batch()` accepts: prepared records, nested arrays of them,
+ * and `null` / `undefined` / `false` (ignored), as in WatermelonDB.
+ */
+export type BatchEntry = Model | null | undefined | false | readonly BatchEntry[];
 
 export interface CollectionMap {
   get<T extends Model = Model>(table: string): Collection<T>;
@@ -116,6 +124,99 @@ export class Database {
   };
 
   /**
+   * Persist prepared records (`prepareCreate`, `prepareCreateFromDirtyRaw`,
+   * `prepareUpdate`, `prepareMarkAsDeleted`, `prepareDestroyPermanently`)
+   * in one adapter batch. Must be called inside `write()`. Nested arrays are
+   * flattened and `null` / `undefined` / `false` entries are ignored.
+   *
+   * Afterwards every collection is updated and notified per record, exactly
+   * as the equivalent individual mutations would have: created records are
+   * cached and emit `created`, updated ones refresh in place and emit
+   * `updated` with their changed columns, deleted ones emit `deleted`.
+   */
+  async batch(...entries: BatchEntry[]): Promise<void> {
+    await this.ready;
+    const core = this.pomegranate;
+    core._ensureInWriter('Database.batch()');
+
+    const records: Model[] = [];
+    flattenEntries(entries, records);
+    if (records.length === 0) return;
+
+    const operations = records.map((record) => this.#operationFor(record));
+
+    // Held instances become the cached ones so the core refreshes them in
+    // place; remember what the cache held so a failed batch can restore it.
+    const staged: Array<{ record: Model; previous: Model | undefined }> = [];
+    for (const [i, record] of records.entries()) {
+      const collection = record.collection.pomegranate;
+      const previous = collection._peekCached(record.id);
+      if (previous === record) continue;
+      if (operations[i].type === 'create' || previous === undefined) {
+        collection._cacheRecord(record);
+        staged.push({ record, previous });
+      }
+    }
+
+    try {
+      await core._batch(operations);
+    } catch (error) {
+      for (const { record, previous } of staged) {
+        const collection = record.collection.pomegranate;
+        if (previous) collection._cacheRecord(previous);
+        else collection._evictCached(record.id);
+      }
+      throw error;
+    }
+
+    core._applyBatchOperations(operations);
+    for (const record of records) {
+      record._setPreparedState(null);
+    }
+  }
+
+  #operationFor(record: Model): BatchOperation {
+    const prepared = record?._preparedState;
+    if (prepared === undefined) {
+      throw new TypeError(
+        'database.batch() only accepts records from pomegranate-db/watermelon ' +
+          '(prepareCreate / prepareUpdate / prepareMarkAsDeleted / prepareDestroyPermanently)',
+      );
+    }
+    const table = record.collection.table;
+    if (record.collection.database !== this) {
+      throw new Error(`Record ${table}#${record.id} belongs to a different database`);
+    }
+    if (!prepared) {
+      throw new Error(
+        `Record ${table}#${record.id} passed to database.batch() has no prepared ` +
+          'operation — call prepareCreate / prepareUpdate / prepareMarkAsDeleted / ' +
+          'prepareDestroyPermanently first',
+      );
+    }
+    switch (prepared.type) {
+      case 'create':
+        return { type: 'create', table, rawRecord: prepared.raw };
+      case 'update': {
+        const updates: Partial<RawRecord> = {
+          ...prepared.rawUpdates,
+          ...record._syncColumnsFor(prepared.changedColumns),
+        };
+        return {
+          type: 'update',
+          table,
+          rawRecord: { ...record._raw, ...updates },
+          changedColumns: prepared.changedColumns,
+        };
+      }
+      case 'markAsDeleted':
+        return { type: 'delete', table, id: record.id };
+      case 'destroyPermanently':
+        return { type: 'destroyPermanently', table, id: record.id };
+    }
+  }
+
+  /**
    * Drop every table and recreate them empty (also clearing sync metadata,
    * so the next sync is a first sync). Must be called inside `write()`.
    */
@@ -155,5 +256,16 @@ export class Database {
         for (const unsub of unsubs) unsub();
       };
     });
+  }
+}
+
+function flattenEntries(entries: readonly BatchEntry[], out: Model[]): void {
+  for (const entry of entries) {
+    if (entry === null || entry === undefined || entry === false) continue;
+    if (Array.isArray(entry)) {
+      flattenEntries(entry as readonly BatchEntry[], out);
+    } else {
+      out.push(entry as Model);
+    }
   }
 }

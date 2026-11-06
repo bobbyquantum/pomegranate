@@ -109,6 +109,14 @@ export type BatchOperationType = 'create' | 'update' | 'delete' | 'destroyPerman
 export interface BatchOperation {
   readonly type: BatchOperationType;
   readonly table: string;
+  /** `create` / `update`: the full raw row (an `update` replaces the stored row). */
   readonly rawRecord?: Record<string, unknown>;
+  /** `delete` / `destroyPermanently`: the record id. */
   readonly id?: string;
+  /**
+   * `update` only: the user-facing columns the update changed, so live queries
+   * can skip irrelevant updates. Omit when unknown — observers then re-run
+   * unconditionally.
+   */
+  readonly changedColumns?: readonly string[];
 }

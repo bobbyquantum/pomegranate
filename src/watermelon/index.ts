@@ -17,10 +17,10 @@ export type DirtyRaw = Record<string, unknown>;
 
 // ─── Model / Relation ──────────────────────────────────────────────────────
 export { Model, Relation } from './Model';
-export type { Associations, ModelAssociation, Mutator } from './Model';
+export type { Associations, ModelAssociation, Mutator, PrepareMutator, PreparedState } from './Model';
 
 // ─── Collection / Query / Q ────────────────────────────────────────────────
-export { Collection } from './Collection';
+export { Collection, rawFromDirty } from './Collection';
 export type { CollectionChangeSet, CollectionChangeType } from './Collection';
 export { Query } from './Query';
 export * as Q from './QNamespace';
@@ -46,7 +46,7 @@ export type {
 
 // ─── Database ──────────────────────────────────────────────────────────────
 export { Database } from './Database';
-export type { DatabaseOptions, CollectionMap, WriterInterface } from './Database';
+export type { DatabaseOptions, CollectionMap, WriterInterface, BatchEntry } from './Database';
 
 // ─── Schema & migrations ───────────────────────────────────────────────────
 export {
