@@ -19,6 +19,7 @@ import type { CollectionChangeSet } from './Collection';
 import type { Model } from './Model';
 import { WatermelonObservable, subscribeToFutureValues } from './observable';
 import { registerCompatCollection } from './registry';
+import { m } from '../schema/builder';
 
 export interface DatabaseOptions {
   readonly adapter: CompatAdapter;
@@ -66,6 +67,9 @@ export class Database {
     this.compatAdapter = adapter;
     this.adapter = adapter.pomegranate;
     this.schema = adapter.schema;
+    for (const modelClass of modelClasses) {
+      ensureModelSchema(modelClass, adapter.schema);
+    }
     this.pomegranate = new CoreDatabase({
       adapter: adapter.pomegranate,
       models: modelClasses,
@@ -268,4 +272,40 @@ function flattenEntries(entries: readonly BatchEntry[], out: Model[]): void {
       out.push(entry as Model);
     }
   }
+}
+
+/**
+ * WatermelonDB models need only `static table`; the columns live in `appSchema`.
+ * When a compat model class declares no `static schema`, derive one from the
+ * app schema so such classes keep working. Field names equal column names, so
+ * `getField('column')`, `_raw` and `prepareCreateFromDirtyRaw` line up.
+ */
+function ensureModelSchema(modelClass: ModelStatic, appSchema: AppSchema): void {
+  if (modelClass.schema) return;
+  const table = (modelClass as unknown as { table?: string }).table;
+  if (!table) {
+    throw new Error(`Model class ${modelClass.name} declares neither static schema nor static table`);
+  }
+  const tableSchema = appSchema.tables[table];
+  if (!tableSchema) {
+    throw new Error(`Model class ${modelClass.name} has table "${table}" which is not in appSchema`);
+  }
+  const fields: Record<string, unknown> = {};
+  for (const column of tableSchema.columnArray) {
+    let builder;
+    switch (column.type) {
+      case 'number':
+        builder = m.number(column.name);
+        break;
+      case 'boolean':
+        builder = m.boolean(column.name);
+        break;
+      default:
+        builder = m.text(column.name);
+    }
+    if (column.isOptional) builder = builder.optional();
+    if (column.isIndexed) builder = builder.indexed();
+    fields[column.name] = builder;
+  }
+  (modelClass as unknown as { schema: unknown }).schema = m.model(table, fields as never);
 }

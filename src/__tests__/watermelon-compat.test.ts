@@ -1189,3 +1189,41 @@ describe('WatermelonObservable', () => {
     await db.pomegranate.close();
   });
 });
+
+describe('models without static schema', () => {
+  it('derives the schema from appSchema (WatermelonDB style)', async () => {
+    const { Database, LokiJSAdapter, Model, Q, appSchema, tableSchema } = await import('../watermelon');
+    class Thing extends Model {
+      static table = 'things';
+      static associations = {};
+    }
+    const schema = appSchema({
+      version: 1,
+      tables: [
+        tableSchema({
+          name: 'things',
+          columns: [
+            { name: 'label', type: 'string' },
+            { name: 'count', type: 'number', isOptional: true },
+            { name: 'flag', type: 'boolean', isIndexed: true },
+          ],
+        }),
+      ],
+    });
+    const database = new Database({
+      adapter: new LokiJSAdapter({ schema, dbName: `derived-${Math.random()}` }),
+      modelClasses: [Thing],
+    });
+    await database.write(async () => {
+      await database.batch(
+        database.get('things').prepareCreateFromDirtyRaw({ id: 'a', label: 'A', flag: true }),
+        database.get('things').prepareCreateFromDirtyRaw({ id: 'b', label: 'B', count: 3, flag: false }),
+      );
+    });
+    const flagged = await database.get('things').query(Q.where('flag', true)).fetch();
+    expect(flagged.map((t) => t.id)).toEqual(['a']);
+    expect(flagged[0].getField('label')).toBe('A');
+    expect(flagged[0]._raw.count).toBeNull();
+    expect(await database.get('things').query(Q.where('count', Q.gte(1))).fetchCount()).toBe(1);
+  });
+});
