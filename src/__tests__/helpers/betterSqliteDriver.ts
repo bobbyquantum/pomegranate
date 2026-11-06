@@ -16,6 +16,21 @@ function normalize(bindings: unknown[]): unknown[] {
   return bindings.map((b) => (typeof b === 'boolean' ? (b ? 1 : 0) : b));
 }
 
+/**
+ * better-sqlite3 is a native module, so Jest loads it once per worker and its
+ * `SqliteError` class belongs to the realm of the first test file that
+ * required it. In a later file in the same worker `err instanceof Error` is
+ * then false and `expect(...).rejects.toThrow()` reports "did not throw".
+ * Re-throw as an Error of the current realm, keeping message and code.
+ */
+function rethrow(error: unknown): never {
+  if (error instanceof Error) throw error;
+  const source = error as { message?: unknown; code?: unknown };
+  const wrapped = new Error(typeof source?.message === 'string' ? source.message : String(error));
+  (wrapped as Error & { code?: unknown }).code = source?.code;
+  throw wrapped;
+}
+
 export function createBetterSqliteDriver(): TestSqliteDriver {
   let db: BetterSqlite3.Database | null = null;
   const statements: string[] = [];
@@ -31,11 +46,19 @@ export function createBetterSqliteDriver(): TestSqliteDriver {
     },
     async execute(sql, bindings = []) {
       statements.push(sql);
-      need().prepare(sql).run(...normalize(bindings));
+      try {
+        need().prepare(sql).run(...normalize(bindings));
+      } catch (error) {
+        rethrow(error);
+      }
     },
     async query(sql, bindings = []) {
       statements.push(sql);
-      return need().prepare(sql).all(...normalize(bindings)) as Record<string, unknown>[];
+      try {
+        return need().prepare(sql).all(...normalize(bindings)) as Record<string, unknown>[];
+      } catch (error) {
+        rethrow(error);
+      }
     },
     async executeInTransaction(fn) {
       need().exec('BEGIN');
