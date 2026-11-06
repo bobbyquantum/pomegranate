@@ -10,6 +10,7 @@
  */
 
 #import "PomegranateJSI.h"
+#import <React/RCTBridge.h>
 #import <objc/message.h>
 #import <React/RCTLog.h>
 #import <jsi/jsi.h>
