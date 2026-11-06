@@ -650,9 +650,20 @@ jobs:
               FAILED="$FAILED $ADAPTER"
             fi
 
-            adb logcat -d ReactNativeJS:V '*:S' | grep 'POMEGRANATE_BENCHMARK' | sed 's/.*\[POMEGRANATE_BENCHMARK\]//' | head -1 > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+            # Benchmark capture is best-effort: a missing line must not fail the
+            # e2e job (under `pipefail` an empty grep, or a SIGPIPE from `head`
+            # closing early, used to abort the whole adapter loop here).
+            adb logcat -d > "/tmp/logcat-${ADAPTER}.txt" || true
+            BENCH_LINE=$(grep -m1 'POMEGRANATE_BENCHMARK' "/tmp/logcat-${ADAPTER}.txt" || true)
+            printf '%s\n' "${BENCH_LINE#*\[POMEGRANATE_BENCHMARK\]}" > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
             echo "=== Benchmark ($ADAPTER) ==="
-            cat "/tmp/benchmarks/benchmark-${ADAPTER}.json" || echo 'No data'
+            if [ -n "$BENCH_LINE" ]; then
+              cat "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+            else
+              : > "/tmp/benchmarks/benchmark-${ADAPTER}.json"
+              echo "No benchmark line found in logcat ($(wc -l < "/tmp/logcat-${ADAPTER}.txt") lines; $(grep -c 'ReactNativeJS' "/tmp/logcat-${ADAPTER}.txt" || true) ReactNativeJS lines). Last JS lines:"
+              grep 'ReactNativeJS' "/tmp/logcat-${ADAPTER}.txt" | tail -20 || true
+            fi
           done
 
           echo ""
@@ -686,6 +697,7 @@ jobs:
             ~/.maestro/tests/
             /tmp/maestro-debug-*/
             /tmp/screenshot-*.png
+            /tmp/logcat-*.txt
           retention-days: 7
 
       - name: Upload benchmark data
